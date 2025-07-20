@@ -1,4 +1,4 @@
-# prawn
+# prawn 🦐
 
 A toy chess playing program using minimax with alpha-beta pruning.
 
