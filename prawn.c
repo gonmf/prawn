@@ -207,19 +207,19 @@ static int just_play(board_t * board, const play_t * play, int score) {
     } else if (board->b[from_y * 8 + from_x] == 'P') {
         if (to_y == 7) {
             if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_y * 8 + to_x] = 'q';
+                board->b[to_y * 8 + to_x] = 'Q';
                 // 1 to 9
                 score -= 8 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_y * 8 + to_x] = 'n';
+                board->b[to_y * 8 + to_x] = 'N';
                 // 1 to 3
                 score -= 2 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_y * 8 + to_x] = 'b';
+                board->b[to_y * 8 + to_x] = 'B';
                 // 1 to 3
                 score -= 2 * PIECE_SCORE_MULTIPLIER;
             } else {
-                board->b[to_y * 8 + to_x] = 'r';
+                board->b[to_y * 8 + to_x] = 'R';
                 // 1 to 5
                 score -= 4 * PIECE_SCORE_MULTIPLIER;
             }
@@ -721,16 +721,16 @@ static char input_promotion_piece() {
         printf("Promotion choice (options: Q, N, B, R): ");
         fgets(input_buffer, 1024, stdin);
 
-        if (input_buffer[0] == 'q' || input_buffer[0] <= 'Q') {
+        if (input_buffer[0] == 'q' || input_buffer[0] == 'Q') {
             return PROMOTION_QUEEN;
         }
-        if (input_buffer[0] == 'n' || input_buffer[0] <= 'N') {
+        if (input_buffer[0] == 'n' || input_buffer[0] == 'N') {
             return PROMOTION_KNIGHT;
         }
-        if (input_buffer[0] == 'b' || input_buffer[0] <= 'B') {
+        if (input_buffer[0] == 'b' || input_buffer[0] == 'B') {
             return PROMOTION_BISHOP;
         }
-        if (input_buffer[0] == 'r' || input_buffer[0] <= 'R') {
+        if (input_buffer[0] == 'r' || input_buffer[0] == 'R') {
             return PROMOTION_ROOK;
         }
     }
@@ -738,14 +738,14 @@ static char input_promotion_piece() {
 
 static void input_play(play_t * play, const play_t * valid_plays, int valid_plays_i) {
     while (1) {
-        printf("Input (example: e2 e4): ");
+        printf("Input (example: e2e4): ");
         fgets(input_buffer, 1024, stdin);
 
-        if (input_buffer[0] >= 'a' && input_buffer[0] <= 'h' && input_buffer[1] >= '1' && input_buffer[1] <= '8' && input_buffer[2] == ' ' && input_buffer[3] >= 'a' && input_buffer[3] <= 'h' && input_buffer[4] >= '1' && input_buffer[4] <= '8') {
+        if (input_buffer[0] >= 'a' && input_buffer[0] <= 'h' && input_buffer[1] >= '1' && input_buffer[1] <= '8' && input_buffer[2] >= 'a' && input_buffer[2] <= 'h' && input_buffer[3] >= '1' && input_buffer[3] <= '8') {
             play->from_x = input_buffer[0] - 'a';
-            play->from_y = 7 - (input_buffer[1] - '1');
-            play->to_x = input_buffer[3] - 'a';
-            play->to_y = 7 - (input_buffer[4] - '1');
+            play->from_y = '8' - input_buffer[1];
+            play->to_x = input_buffer[2] - 'a';
+            play->to_y = '8' - input_buffer[3];
 
             int valid_input = 0;
             for (int i = 0; i < valid_plays_i; ++i) {
