@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <time.h>
 
 static char input_buffer[1024];
 
@@ -664,7 +665,7 @@ static int minimax(board_t * board, int color, int depth, int alpha, int beta, i
     return best_score;
 }
 
-static int ai_play() {
+static int ai_play(play_t * play) {
     board_t board_cpy;
     play_t valid_plays[64];
     int alpha = -2147483644;
@@ -711,6 +712,7 @@ static int ai_play() {
     }
 
     actual_play(&valid_plays[best_play]);
+    *play = valid_plays[best_play];
     return 1;
 }
 
@@ -770,22 +772,58 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
             }
         }
     }
-
 }
 
-int main() {
-    play_t valid_plays[64];
+static void reset_board() {
     memcpy(board.b, "RNBQKBNRPPPPPPPP                                pppppppprnbqkbnr", 64);
     board.en_passant_x = NO_EN_PASSANT;
     board.white_left_castling = 1;
     board.white_right_castling = 1;
     board.black_left_castling = 1;
     board.black_right_castling = 1;
+    player_color = WHITE_COLOR;
+}
 
-    int player_one_is_human = 0;
-    int player_two_is_human = 0;
+static void send_uci_command(FILE * fd, const char * str) {
+    fprintf(fd, "< %s\n", str);
+    fflush(fd);
+    printf("%s\n", str);
+    fflush(stdout);
+}
 
-    printf("\nPrawn started - %s vs %s\n\n", player_one_is_human ? "human" : "cpu", player_two_is_human ? "human" : "cpu");
+static void text_mode() {
+    printf("Prawn 1.0\n\n 1 - Human vs CPU\n 2 - CPU vs human\n 3 - Human vs human\n 4 - CPU vs CPU\n\n");
+
+    int player_one_is_human;
+    int player_two_is_human;
+    play_t valid_plays[64];
+
+    while (1) {
+        fgets(input_buffer, 1024, stdin);
+
+        if (strcmp(input_buffer, "1\n") == 0) {
+            player_one_is_human = 1;
+            player_two_is_human = 0;
+            break;
+        }
+        if (strcmp(input_buffer, "2\n") == 0) {
+            player_one_is_human = 0;
+            player_two_is_human = 1;
+            break;
+        }
+        if (strcmp(input_buffer, "3\n") == 0) {
+            player_one_is_human = 1;
+            player_two_is_human = 1;
+            break;
+        }
+        if (strcmp(input_buffer, "4\n") == 0) {
+            player_one_is_human = 0;
+            player_two_is_human = 0;
+            break;
+        }
+    }
+
+    printf("\nNew game - %s vs %s\n\n", player_one_is_human ? "human" : "cpu", player_two_is_human ? "human" : "cpu");
 
     while (1) {
         print_board();
@@ -808,7 +846,8 @@ int main() {
             input_play(&play, valid_plays, valid_plays_i);
             actual_play(&play);
         } else {
-            int played = ai_play();
+            play_t play;
+            int played = ai_play(&play);
             if (played == CHECK_MATE) {
                 printf("Player lost.\n");
                 break;
@@ -819,5 +858,109 @@ int main() {
             }
         }
     }
+}
+
+static void uci_mode() {
+    time_t t;
+    struct tm * tm_info;
+    time(&t);
+    tm_info = localtime(&t);
+    strftime(input_buffer, 1024, "log-%Y-%m-%d_%H-%M-%S.txt", tm_info);
+    FILE * fd = fopen(input_buffer, "w");
+
+    fprintf(fd, "Starting in UCI mode\n");
+    fflush(fd);
+
+    while (1) {
+        if (fgets(input_buffer, 1024, stdin) == NULL) {
+            break;
+        }
+        for (int i = 0; i < 1024; ++i) {
+            if (input_buffer[i] == '\n') {
+                input_buffer[i] = 0;
+                break;
+            }
+        }
+
+        fprintf(fd, "> %s\n", input_buffer);
+        fflush(fd);
+
+        if (feof(fd) || ferror(fd) || strcmp(input_buffer, "quit") == 0) {
+            break;
+        }
+        if (strcmp(input_buffer, "uci") == 0) {
+            send_uci_command(fd, "id name prawn 1.0");
+            send_uci_command(fd, "id author gonmf");
+            send_uci_command(fd, "uciok");
+            continue;
+        }
+        if (strcmp(input_buffer, "isready") == 0) {
+            send_uci_command(fd, "readyok");
+            continue;
+        }
+        if (strcmp(input_buffer, "ucinewgame") == 0) {
+            reset_board();
+            continue;
+        }
+        if (strcmp(input_buffer, "position") == 0) {
+            // position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 moves e2e4
+            continue;
+        }
+        if (input_buffer[0] == 'g' && input_buffer[1] == 'o' && input_buffer[2] == ' ') {
+            // go wtime 175500 btime 182000 winc 2000 binc 2000
+            // bestmove g1f3 ponder d8f6
+
+            fprintf(fd, "Thinking...\n");
+            fflush(fd);
+
+            play_t play;
+            int played = ai_play(&play);
+            if (played == CHECK_MATE) {
+                fprintf(fd, "Player lost.\n");
+                fflush(fd);
+                break;
+            }
+            if (played == DRAW) {
+                fprintf(fd, "Game is drawn.\n");
+                fflush(fd);
+                break;
+            }
+
+            fprintf(fd, "Finished thinking\n");
+            fflush(fd);
+
+            sprintf(input_buffer, "bestmove %c%d%c%d\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            send_uci_command(fd, input_buffer);
+            continue;
+        }
+    }
+
+    fprintf(fd, "Program is closing\n");
+    fflush(fd);
+
+    fclose(fd);
+}
+
+static void show_help() {
+    printf("Prawn 1.0\n\nUse option --text for the text interface, otherwise the program starts in UCI mode.\n\n");
+}
+
+int main(int argc, char * argv[]) {
+    reset_board();
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+            show_help();
+            return 0;
+        }
+    }
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--text") == 0) {
+            text_mode();
+            return 0;
+        }
+    }
+
+    uci_mode();
     return 0;
 }
