@@ -7,4 +7,4 @@ Main missing features:
 - Drawing by threefold repetition.
 - Drawing by fifty-move rule.
 - Opening theory, heuristics or endgame tables.
-- UCI API.
+- UCI API (WIP).
