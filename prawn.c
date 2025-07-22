@@ -1,37 +1,6 @@
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <time.h>
+#include "common.h"
 
 static char input_buffer[1024];
-
-#define WHITE_COLOR 1
-#define BLACK_COLOR 2
-#define NO_COLOR 3
-
-#define NO_EN_PASSANT -2
-
-typedef struct {
-    char b[64];
-    char en_passant_x;
-    char white_left_castling;
-    char white_right_castling;
-    char black_left_castling;
-    char black_right_castling;
-} board_t;
-
-#define PROMOTION_QUEEN 1
-#define PROMOTION_KNIGHT 2
-#define PROMOTION_BISHOP 3
-#define PROMOTION_ROOK 4
-
-typedef struct {
-    char from_x;
-    char from_y;
-    char to_x;
-    char to_y;
-    char promotion_option;
-} play_t;
 
 static board_t board;
 static char last_play_x = -1;
@@ -62,10 +31,12 @@ static int determine_color(char c) {
     if (c == ' ') {
         return NO_COLOR;
     }
-    return c > 'a' ? WHITE_COLOR : BLACK_COLOR;
+    return c > 'a' ? BLACK_COLOR : WHITE_COLOR;
 }
 
 static void print_board() {
+    board_to_fen(input_buffer, &board, player_color);
+    printf("%s\n", input_buffer);
     printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
         printf("║ ");
@@ -102,40 +73,40 @@ static int just_play(board_t * board, const play_t * play, int score) {
     char promotion_option = play->promotion_option;
 
     switch (board->b[to_y * 8 + to_x]) {
-        case 'p':
+        case 'P':
            score -= 1 * PIECE_SCORE_MULTIPLIER;
            break;
-        case 'P':
+        case 'p':
            score += 1 * PIECE_SCORE_MULTIPLIER;
            break;
-        case 'n':
-        case 'b':
-            score -= 3 * PIECE_SCORE_MULTIPLIER;
-            break;
         case 'N':
         case 'B':
+            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'n':
+        case 'b':
             score += 3 * PIECE_SCORE_MULTIPLIER;
             break;
-        case 'r':
+        case 'R':
             score -= 5 * PIECE_SCORE_MULTIPLIER;
             break;
-        case 'R':
+        case 'r':
             score += 5 * PIECE_SCORE_MULTIPLIER;
             break;
-        case 'q':
+        case 'Q':
             score -= 9 * PIECE_SCORE_MULTIPLIER;
             break;
-        case 'Q':
+        case 'q':
             score += 9 * PIECE_SCORE_MULTIPLIER;
             break;
     }
 
     if (board->en_passant_x != NO_EN_PASSANT) {
         if (board->en_passant_x == to_x) {
-            if (from_y == 3 && board->b[from_y * 8 + from_x] == 'p') {
+            if (from_y == 3 && board->b[from_y * 8 + from_x] == 'P') {
                 board->b[from_y * 8 + to_x] = ' ';
                 score += 1 * PIECE_SCORE_MULTIPLIER;
-            } else if (from_y == 4 && board->b[from_y * 8 + from_x] == 'P') {
+            } else if (from_y == 4 && board->b[from_y * 8 + from_x] == 'p') {
                 board->b[from_y * 8 + to_x] = ' ';
                 score -= 1 * PIECE_SCORE_MULTIPLIER;
             }
@@ -143,26 +114,26 @@ static int just_play(board_t * board, const play_t * play, int score) {
         board->en_passant_x = NO_EN_PASSANT;
     }
 
-    if (board->b[from_y * 8 + from_x] == 'k') {
+    if (board->b[from_y * 8 + from_x] == 'K') {
         if (from_y == to_y) {
             if (board->white_right_castling && from_x + 2 == to_x && board->b[from_y * 8 + from_x + 1] == ' ' && board->b[from_y * 8 + from_x + 2] == ' ') {
-                board->b[to_y * 8 + to_x - 1] = 'r';
+                board->b[to_y * 8 + to_x - 1] = 'R';
                 board->b[to_y * 8 + to_x + 1] = ' ';
             } else if (board->white_left_castling && from_x - 2 == to_x && board->b[from_y * 8 + from_x - 1] == ' ' && board->b[from_y * 8 + from_x - 2] == ' ' && board->b[from_y * 8 + from_x - 3] == ' ') {
                 board->b[to_y * 8 + to_x - 2] = ' ';
-                board->b[to_y * 8 + to_x + 1] = 'r';
+                board->b[to_y * 8 + to_x + 1] = 'R';
             }
         }
         board->white_right_castling = 0;
         board->white_left_castling = 0;
-    } else if (board->b[from_y * 8 + from_x] == 'K') {
+    } else if (board->b[from_y * 8 + from_x] == 'k') {
         if (from_y == to_y) {
             if (board->black_right_castling && from_x + 2 == to_x && board->b[from_y * 8 + from_x + 1] == ' ' && board->b[from_y * 8 + from_x + 2] == ' ') {
-                board->b[to_y * 8 + to_x - 1] = 'R';
+                board->b[to_y * 8 + to_x - 1] = 'r';
                 board->b[to_y * 8 + to_x + 1] = ' ';
             } else if (board->black_left_castling && from_x - 2 == to_x && board->b[from_y * 8 + from_x - 1] == ' ' && board->b[from_y * 8 + from_x - 2] == ' ' && board->b[from_y * 8 + from_x - 3] == ' ') {
                 board->b[to_y * 8 + to_x - 2] = ' ';
-                board->b[to_y * 8 + to_x + 1] = 'R';
+                board->b[to_y * 8 + to_x + 1] = 'r';
             }
         }
         board->black_right_castling = 0;
@@ -179,22 +150,22 @@ static int just_play(board_t * board, const play_t * play, int score) {
         board->black_right_castling = 0;
     }
 
-    if (board->b[from_y * 8 + from_x] == 'p') {
+    if (board->b[from_y * 8 + from_x] == 'P') {
         if (to_y == 0) {
             if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_y * 8 + to_x] = 'q';
+                board->b[to_y * 8 + to_x] = 'Q';
                 // 1 to 9
                 score += 8 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_y * 8 + to_x] = 'n';
+                board->b[to_y * 8 + to_x] = 'N';
                 // 1 to 3
                 score += 2 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_y * 8 + to_x] = 'b';
+                board->b[to_y * 8 + to_x] = 'B';
                 // 1 to 3
                 score += 2 * PIECE_SCORE_MULTIPLIER;
             } else {
-                board->b[to_y * 8 + to_x] = 'r';
+                board->b[to_y * 8 + to_x] = 'R';
                 // 1 to 5
                 score += 4 * PIECE_SCORE_MULTIPLIER;
             }
@@ -204,22 +175,22 @@ static int just_play(board_t * board, const play_t * play, int score) {
             }
             board->b[to_y * 8 + to_x] = board->b[from_y * 8 + from_x];
         }
-    } else if (board->b[from_y * 8 + from_x] == 'P') {
+    } else if (board->b[from_y * 8 + from_x] == 'p') {
         if (to_y == 7) {
             if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_y * 8 + to_x] = 'Q';
+                board->b[to_y * 8 + to_x] = 'q';
                 // 1 to 9
                 score -= 8 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_y * 8 + to_x] = 'N';
+                board->b[to_y * 8 + to_x] = 'n';
                 // 1 to 3
                 score -= 2 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_y * 8 + to_x] = 'B';
+                board->b[to_y * 8 + to_x] = 'b';
                 // 1 to 3
                 score -= 2 * PIECE_SCORE_MULTIPLIER;
             } else {
-                board->b[to_y * 8 + to_x] = 'R';
+                board->b[to_y * 8 + to_x] = 'r';
                 // 1 to 5
                 score -= 4 * PIECE_SCORE_MULTIPLIER;
             }
@@ -241,6 +212,9 @@ static void actual_play(const play_t * play) {
     last_play_x = play->to_x;
     last_play_y = play->to_y;
     just_play(&board, play, 0);
+    if (player_color == BLACK_COLOR) {
+      board.fullmoves++;
+    }
     player_color = opposite_color(player_color);
 }
 
@@ -255,7 +229,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 continue;
             }
 
-            if (piece == 'p') {
+            if (piece == 'P') {
                 if (board->b[(y - 1) * 8 + x] == ' ') {
                     if (y == 1) {
                         valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
@@ -310,7 +284,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 continue;
             }
-            if (piece == 'P') {
+            if (piece == 'p') {
                 if (board->b[(y + 1) * 8 + x] == ' ') {
                     if (y == 6) {
                         valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
@@ -529,7 +503,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 if (x + 1 <= 7 && y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) != color) {
                     QUEUE_PLAY(x, y, x + 1, y + 1);
                 }
-                if (piece == 'k') {
+                if (piece == 'K') {
                     if (board->white_right_castling && x == 4 && y == 7 && board->b[y * 8 + x + 1] == ' ' && board->b[y * 8 + x + 2] == ' ') {
                         QUEUE_PLAY(x, y, x + 2, y);
                     }
@@ -556,7 +530,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
 
 static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t * board, int color) {
     int valid_plays_i = enumerate_possible_plays(valid_plays, board, color);
-    char king_piece = color == WHITE_COLOR ? 'k' : 'K';
+    char king_piece = color == WHITE_COLOR ? 'K' : 'k';
 
     board_t board_cpy;
     play_t cpy_valid_plays[64];
@@ -582,7 +556,7 @@ static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t
 }
 
 static int king_threatened(board_t * board, int color) {
-    char king_piece = color == WHITE_COLOR ? 'k' : 'K';
+    char king_piece = color == WHITE_COLOR ? 'K' : 'k';
     play_t valid_plays[64];
 
     char en_passant_x = board->en_passant_x;
@@ -760,12 +734,13 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
             }
             if (valid_input) {
                 char from_piece = board.b[play->from_y * 8 + play->from_x];
-                if (play->from_y == 1 && play->to_y == 0 && from_piece == 'p') {
+                if (play->from_y == 1 && play->to_y == 0 && from_piece == 'P') {
                     play->promotion_option = input_promotion_piece();
-                } else if (play->from_y == 6 && play->to_y == 7 && from_piece == 'P') {
+                } else if (play->from_y == 6 && play->to_y == 7 && from_piece == 'p') {
                     play->promotion_option = input_promotion_piece();
                 }
 
+                printf("\n");
                 return;
             } else {
                 printf("\nInvalid play.\n\n");
@@ -775,13 +750,15 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
 }
 
 static void reset_board() {
-    memcpy(board.b, "RNBQKBNRPPPPPPPP                                pppppppprnbqkbnr", 64);
+    memcpy(board.b, "rnbqkbnrpppppppp                                PPPPPPPPRNBQKBNR", 64);
     board.en_passant_x = NO_EN_PASSANT;
     board.white_left_castling = 1;
     board.white_right_castling = 1;
     board.black_left_castling = 1;
     board.black_right_castling = 1;
     player_color = WHITE_COLOR;
+    board.halfmoves = 0; // TODO:
+    board.fullmoves = 0;
 }
 
 static void send_uci_command(FILE * fd, const char * str) {
@@ -868,7 +845,7 @@ static void uci_mode() {
     strftime(input_buffer, 1024, "log-%Y-%m-%d_%H-%M-%S.txt", tm_info);
     FILE * fd = fopen(input_buffer, "w");
 
-    fprintf(fd, "Starting in UCI mode\n");
+    fprintf(fd, "Starting in UCI mode.\n");
     fflush(fd);
 
     while (1) {
@@ -902,31 +879,28 @@ static void uci_mode() {
             reset_board();
             continue;
         }
-        if (strcmp(input_buffer, "position") == 0) {
-            // position fen rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1 moves e2e4
+        if (strncmp(input_buffer, "position fen ", strlen("position fen ")) == 0) {
+            fen_to_board(&board, &player_color, input_buffer + strlen("position fen "));
             continue;
         }
-        if (input_buffer[0] == 'g' && input_buffer[1] == 'o' && input_buffer[2] == ' ') {
-            // go wtime 175500 btime 182000 winc 2000 binc 2000
-            // bestmove g1f3 ponder d8f6
-
+        if (strncmp(input_buffer, "go ", strlen("go ")) == 0) {
             fprintf(fd, "Thinking...\n");
             fflush(fd);
 
             play_t play;
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
-                fprintf(fd, "Player lost.\n");
+                fprintf(fd, "Player lost. Closing.\n");
                 fflush(fd);
                 break;
             }
             if (played == DRAW) {
-                fprintf(fd, "Game is drawn.\n");
+                fprintf(fd, "Game is drawn. Closing.\n");
                 fflush(fd);
                 break;
             }
 
-            fprintf(fd, "Finished thinking\n");
+            fprintf(fd, "Finished thinking.\n");
             fflush(fd);
 
             sprintf(input_buffer, "bestmove %c%d%c%d\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
@@ -935,7 +909,7 @@ static void uci_mode() {
         }
     }
 
-    fprintf(fd, "Program is closing\n");
+    fprintf(fd, "Program is closing.\n");
     fflush(fd);
 
     fclose(fd);
