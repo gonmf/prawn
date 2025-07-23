@@ -710,29 +710,78 @@ static char input_promotion_piece() {
     }
 }
 
+static char * read_play(play_t * play, char * str) {
+    if (str[0] >= 'a' && str[0] <= 'h') {
+        play->from_x = str[0] - 'a';
+    } else {
+        return NULL;
+    }
+    if (str[1] >= '1' && str[1] <= '8') {
+        play->from_y = 8 - (str[1] - '0');
+    } else {
+        return NULL;
+    }
+    if (str[2] >= 'a' && str[2] <= 'h') {
+        play->to_x = str[2] - 'a';
+    } else {
+        return NULL;
+    }
+    if (str[3] >= '1' && str[3] <= '8') {
+        play->to_y = 8 - (str[3] - '0');
+    } else {
+        return NULL;
+    }
+    if (str[4] == 'q') {
+        play->promotion_option = PROMOTION_QUEEN;
+    }
+    if (str[4] == 'n') {
+        play->promotion_option = PROMOTION_KNIGHT;
+    }
+    if (str[4] == 'b') {
+        play->promotion_option = PROMOTION_BISHOP;
+    }
+    if (str[4] == 'r') {
+        play->promotion_option = PROMOTION_ROOK;
+    }
+    if (str[4] == 0) {
+        return str + 4;
+    }
+    if (str[4] == ' ') {
+        return str + 5;
+    }
+    if (str[5] == 0) {
+        return str + 5;
+    }
+    if (str[5] == ' ') {
+        return str + 6;
+    }
+    if (str[6] == ' ') {
+        return str + 7;
+    }
+    return NULL;
+}
+
 static void input_play(play_t * play, const play_t * valid_plays, int valid_plays_i) {
     while (1) {
         printf("Input (example: e2e4): ");
         fgets(input_buffer, 1024, stdin);
 
-        if (input_buffer[0] >= 'a' && input_buffer[0] <= 'h' && input_buffer[1] >= '1' && input_buffer[1] <= '8' && input_buffer[2] >= 'a' && input_buffer[2] <= 'h' && input_buffer[3] >= '1' && input_buffer[3] <= '8') {
-            play->from_x = input_buffer[0] - 'a';
-            play->from_y = '8' - input_buffer[1];
-            play->to_x = input_buffer[2] - 'a';
-            play->to_y = '8' - input_buffer[3];
+        input_buffer[4] = 0;
+        char * input_is_valid = read_play(play, input_buffer);
 
-            int valid_input = 0;
+        if (input_is_valid) {
+            int play_is_valid = 0;
             for (int i = 0; i < valid_plays_i; ++i) {
                 char from_x2 = valid_plays[i].from_x;
                 char from_y2 = valid_plays[i].from_y;
                 char to_x2 = valid_plays[i].to_x;
                 char to_y2 = valid_plays[i].to_y;
                 if (play->from_x == from_x2 && play->from_y == from_y2 && play->to_x == to_x2 && play->to_y == to_y2) {
-                    valid_input = 1;
+                    play_is_valid = 1;
                     break;
                 }
             }
-            if (valid_input) {
+            if (play_is_valid) {
                 char from_piece = board.b[play->from_y * 8 + play->from_x];
                 if (play->from_y == 1 && play->to_y == 0 && from_piece == 'P') {
                     play->promotion_option = input_promotion_piece();
@@ -838,13 +887,7 @@ static void text_mode() {
 }
 
 static void uci_mode() {
-    time_t t;
-    struct tm * tm_info;
-    time(&t);
-    tm_info = localtime(&t);
-    strftime(input_buffer, 1024, "log-%Y-%m-%d_%H-%M-%S.txt", tm_info);
-    FILE * fd = fopen(input_buffer, "w");
-
+    FILE * fd = fopen("uci.log", "a");
     fprintf(fd, "Starting in UCI mode.\n");
     fflush(fd);
 
@@ -879,8 +922,29 @@ static void uci_mode() {
             reset_board();
             continue;
         }
-        if (strncmp(input_buffer, "position fen ", strlen("position fen ")) == 0) {
-            fen_to_board(&board, &player_color, input_buffer + strlen("position fen "));
+        if (strncmp(input_buffer, "position ", strlen("position ")) == 0) {
+            char * str = strstr(input_buffer, " startpos ");
+            if (str) {
+                reset_board();
+            } else {
+                str = strstr(input_buffer, " fen ");
+                if (str) {
+                    fen_to_board(&board, &player_color, str + strlen(" fen "));
+                }
+            }
+
+            str = strstr(input_buffer, " moves ");
+            if (str) {
+                str += strlen(" moves ");
+
+                while (str) {
+                    play_t play;
+                    str = read_play(&play, str);
+                    if (str) {
+                        actual_play(&play);
+                    }
+                }
+            }
             continue;
         }
         if (strncmp(input_buffer, "go ", strlen("go ")) == 0) {
@@ -903,7 +967,17 @@ static void uci_mode() {
             fprintf(fd, "Finished thinking.\n");
             fflush(fd);
 
-            sprintf(input_buffer, "bestmove %c%d%c%d\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            if (play.promotion_option == PROMOTION_QUEEN) {
+                sprintf(input_buffer, "bestmove %c%d%c%dq\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            } else if (play.promotion_option == PROMOTION_KNIGHT) {
+                sprintf(input_buffer, "bestmove %c%d%c%dn\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            } else if (play.promotion_option == PROMOTION_BISHOP) {
+                sprintf(input_buffer, "bestmove %c%d%c%db\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            } else if (play.promotion_option == PROMOTION_ROOK) {
+                sprintf(input_buffer, "bestmove %c%d%c%dr\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            } else {
+                sprintf(input_buffer, "bestmove %c%d%c%d\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            }
             send_uci_command(fd, input_buffer);
             continue;
         }
