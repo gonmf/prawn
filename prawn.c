@@ -888,7 +888,7 @@ static void text_mode() {
 
 static void uci_mode() {
     FILE * fd = fopen("uci.log", "a");
-    fprintf(fd, "Starting in UCI mode.\n");
+    fprintf(fd, "# Starting in UCI mode.\n");
     fflush(fd);
 
     while (1) {
@@ -948,43 +948,34 @@ static void uci_mode() {
             continue;
         }
         if (strncmp(input_buffer, "go ", strlen("go ")) == 0) {
-            fprintf(fd, "Thinking...\n");
-            fflush(fd);
-
             play_t play;
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
-                fprintf(fd, "Player lost. Closing.\n");
+                fprintf(fd, "# Player lost.\n");
                 fflush(fd);
-                break;
+                continue;
             }
             if (played == DRAW) {
-                fprintf(fd, "Game is drawn. Closing.\n");
+                fprintf(fd, "# Game is drawn.\n");
                 fflush(fd);
-                break;
+                continue;
             }
 
-            fprintf(fd, "Finished thinking.\n");
-            fflush(fd);
-
             if (play.promotion_option == PROMOTION_QUEEN) {
-                sprintf(input_buffer, "bestmove %c%d%c%dq\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(input_buffer, "bestmove %c%d%c%dq", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else if (play.promotion_option == PROMOTION_KNIGHT) {
-                sprintf(input_buffer, "bestmove %c%d%c%dn\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(input_buffer, "bestmove %c%d%c%dn", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else if (play.promotion_option == PROMOTION_BISHOP) {
-                sprintf(input_buffer, "bestmove %c%d%c%db\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(input_buffer, "bestmove %c%d%c%db", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else if (play.promotion_option == PROMOTION_ROOK) {
-                sprintf(input_buffer, "bestmove %c%d%c%dr\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(input_buffer, "bestmove %c%d%c%dr", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else {
-                sprintf(input_buffer, "bestmove %c%d%c%d\n", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(input_buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             }
             send_uci_command(fd, input_buffer);
             continue;
         }
     }
-
-    fprintf(fd, "Program is closing.\n");
-    fflush(fd);
 
     fclose(fd);
 }
