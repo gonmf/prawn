@@ -818,7 +818,7 @@ static void send_uci_command(FILE * fd, const char * str) {
 }
 
 static void text_mode() {
-    printf("Prawn 1.0\n\n 1 - Human vs CPU\n 2 - CPU vs human\n 3 - Human vs human\n 4 - CPU vs CPU\n\n");
+    printf("Prawn %s\n\n 1 - Human vs CPU\n 2 - CPU vs human\n 3 - Human vs human\n 4 - CPU vs CPU\n\n", PROGRAM_VERSION);
 
     int player_one_is_human;
     int player_two_is_human;
@@ -990,7 +990,7 @@ static void uci_mode() {
 }
 
 static void show_help() {
-    printf("Prawn 1.0\n\nUse option --text for the text interface, otherwise the program starts in UCI mode.\n\n");
+    printf("Prawn %s\n\nUse option --text for the text interface, otherwise the program starts in UCI mode.\n\n", PROGRAM_VERSION);
 }
 
 int main(int argc, char * argv[]) {

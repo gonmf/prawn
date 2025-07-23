@@ -5,6 +5,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#define PROGRAM_VERSION "1.0"
+
 typedef struct {
     char b[64];
     char en_passant_x;
