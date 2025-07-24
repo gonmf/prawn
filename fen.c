@@ -1,6 +1,6 @@
 #include "common.h"
 
-void fen_to_board(board_t * board, char * color, const char * fen_str) {
+void fen_to_board(board_t * board, const char * fen_str) {
   for (int y = 0; y < 8; ++y) {
     for (int x = 0; x < 8; ++x) {
       board->b[y * 8 + x] = ' ';
@@ -23,9 +23,9 @@ void fen_to_board(board_t * board, char * color, const char * fen_str) {
   }
 
   if (fen_str[fen_str_i] == 'w') {
-      *color = WHITE_COLOR;
+      board->color = WHITE_COLOR;
   } else {
-      *color = BLACK_COLOR;
+      board->color = BLACK_COLOR;
   }
 
   fen_str_i += 2;
@@ -76,7 +76,7 @@ void fen_to_board(board_t * board, char * color, const char * fen_str) {
   }
 }
 
-void board_to_fen(char * fen_str, const board_t * board, char color) {
+void board_to_fen(char * fen_str, const board_t * board) {
   int fen_str_i = 0;
 
   for (int y = 0; y < 8; ++y) {
@@ -104,7 +104,7 @@ void board_to_fen(char * fen_str, const board_t * board, char color) {
   }
 
   fen_str[fen_str_i++] = ' ';
-  fen_str[fen_str_i++] = color == WHITE_COLOR ? 'w' : 'b';
+  fen_str[fen_str_i++] = board->color == WHITE_COLOR ? 'w' : 'b';
   fen_str[fen_str_i++] = ' ';
 
   int any_can_castle = 0;
@@ -134,7 +134,7 @@ void board_to_fen(char * fen_str, const board_t * board, char color) {
     fen_str[fen_str_i++] = '-';
   } else {
     fen_str[fen_str_i++] = 'a' + board->en_passant_x;
-    if (color == WHITE_COLOR) {
+    if (board->color == WHITE_COLOR) {
       fen_str[fen_str_i++] = '6';
     } else {
       fen_str[fen_str_i++] = '3';

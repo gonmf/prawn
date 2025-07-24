@@ -5,7 +5,6 @@ static char input_buffer[1024];
 static board_t board;
 static char last_play_x = -1;
 static char last_play_y = -1;
-static char player_color = WHITE_COLOR;
 
 #define PIECE_SCORE_MULTIPLIER 256
 #define NO_SCORE 2147483647
@@ -15,17 +14,12 @@ static char player_color = WHITE_COLOR;
 #define MAX(A,B) ((A) > (B) ? (A) : (B))
 #define MIN(A,B) ((A) < (B) ? (A) : (B))
 
-static int max_valid_plays = 0;
-
 #define QUEUE_PLAY(FROM_X, FROM_Y, TO_X, TO_Y) \
     valid_plays[valid_plays_i].from_x = (FROM_X); \
     valid_plays[valid_plays_i].from_y = (FROM_Y); \
     valid_plays[valid_plays_i].to_x = (TO_X); \
     valid_plays[valid_plays_i].to_y = (TO_Y); \
-    valid_plays_i = valid_plays_i + 1; \
-    if (valid_plays_i == 64) { \
-        return valid_plays_i; \
-    }
+    valid_plays_i = valid_plays_i + 1;
 
 static int determine_color(char c) {
     if (c == ' ') {
@@ -35,7 +29,7 @@ static int determine_color(char c) {
 }
 
 static void print_board() {
-    board_to_fen(input_buffer, &board, player_color);
+    board_to_fen(input_buffer, &board);
     printf("%s\n", input_buffer);
     printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
@@ -205,27 +199,35 @@ static int just_play(board_t * board, const play_t * play, int score) {
     }
     board->b[from_y * 8 + from_x] = ' ';
 
+    board->color = opposite_color(board->color);
+
     return score;
 }
 
 static void actual_play(const play_t * play) {
+    char moving_piece = board.b[play->from_y * 8 + play->from_x];
+    if (moving_piece == 'P' || moving_piece == 'p' || board.b[play->to_y * 8 + play->to_x] != ' ') {
+        board.halfmoves = 0;
+    } else {
+        board.halfmoves++;
+    }
+
     last_play_x = play->to_x;
     last_play_y = play->to_y;
-    just_play(&board, play, 0);
-    if (player_color == BLACK_COLOR) {
-      board.fullmoves++;
+    if (board.color == BLACK_COLOR) {
+        board.fullmoves++;
     }
-    player_color = opposite_color(player_color);
+    just_play(&board, play, 0);
 }
 
-static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int color) {
+static int enumerate_possible_plays(play_t * valid_plays, board_t * board) {
     int valid_plays_i = 0;
-    int opnt_color = opposite_color(color);
+    int opnt_color = opposite_color(board->color);
 
     for (int y = 0; y < 8; y++) {
         for (int x = 0; x < 8; x++) {
             char piece = board->b[y * 8 + x];
-            if (determine_color(piece) != color) {
+            if (determine_color(piece) != board->color) {
                 continue;
             }
 
@@ -342,42 +344,42 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
             if (piece == 'N' || piece == 'n') {
                 char x2 = x - 1;
                 char y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x - 1;
                 y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x + 1;
                 y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x + 1;
                 y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x - 2;
                 y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x - 2;
                 y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x + 2;
                 y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 x2 = x + 2;
                 y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != color) {
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != board->color) {
                     QUEUE_PLAY(x, y, x2, y2);
                 }
                 continue;
@@ -385,7 +387,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
             if (piece == 'R' || piece == 'r' || piece == 'Q' || piece == 'q') {
                 for (char dst = 1; x - dst >= 0; dst++) {
                     int piece_color = determine_color(board->b[y * 8 + x - dst]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x - dst, y);
                         if (piece_color == opnt_color) {
                             break;
@@ -396,7 +398,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 for (char dst = 1; x + dst <= 7; dst++) {
                     int piece_color = determine_color(board->b[y * 8 + x + dst]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x + dst, y);
                         if (piece_color == opnt_color) {
                             break;
@@ -407,7 +409,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 for (char dst = 1; y - dst >= 0; dst++) {
                     int piece_color = determine_color(board->b[(y - dst) * 8 + x]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x, y - dst);
                         if (piece_color == opnt_color) {
                             break;
@@ -418,7 +420,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 for (char dst = 1; y + dst <= 7; dst++) {
                     int piece_color = determine_color(board->b[(y + dst) * 8 + x]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x, y + dst);
                         if (piece_color == opnt_color) {
                             break;
@@ -434,7 +436,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
             if (piece == 'B' || piece == 'b' || piece == 'Q' || piece == 'q') {
                 for (char dst = 1; x - dst >= 0 && y - dst >= 0; dst++) {
                     int piece_color = determine_color(board->b[(y - dst) * 8 + x - dst]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x - dst, y - dst);
                         if (piece_color == opnt_color) {
                             break;
@@ -445,7 +447,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 for (char dst = 1; x + dst <= 7 && y - dst >= 0; dst++) {
                     int piece_color = determine_color(board->b[(y - dst) * 8 + x + dst]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x + dst, y - dst);
                         if (piece_color == opnt_color) {
                             break;
@@ -456,7 +458,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 for (char dst = 1; x - dst >= 0 && y + dst <= 7; dst++) {
                     int piece_color = determine_color(board->b[(y + dst) * 8 + x - dst]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x - dst, y + dst);
                         if (piece_color == opnt_color) {
                             break;
@@ -467,7 +469,7 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 }
                 for (char dst = 1; x + dst <= 7 && y + dst <= 7; dst++) {
                     int piece_color = determine_color(board->b[(y + dst) * 8 + x + dst]);
-                    if (piece_color != color) {
+                    if (piece_color != board->color) {
                         QUEUE_PLAY(x, y, x + dst, y + dst);
                         if (piece_color == opnt_color) {
                             break;
@@ -479,28 +481,28 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
                 continue;
             }
             if (piece == 'K' || piece == 'k') {
-                if (x - 1 >= 0 && determine_color(board->b[y * 8 + x - 1]) != color) {
+                if (x - 1 >= 0 && determine_color(board->b[y * 8 + x - 1]) != board->color) {
                     QUEUE_PLAY(x, y, x - 1, y);
                 }
-                if (x + 1 <= 7 && determine_color(board->b[y * 8 + x + 1]) != color) {
+                if (x + 1 <= 7 && determine_color(board->b[y * 8 + x + 1]) != board->color) {
                     QUEUE_PLAY(x, y, x + 1, y);
                 }
-                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) != color) {
+                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) != board->color) {
                     QUEUE_PLAY(x, y, x, y - 1);
                 }
-                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) != color) {
+                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) != board->color) {
                     QUEUE_PLAY(x, y, x, y + 1);
                 }
-                if (x - 1 >= 0 && y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) != color) {
+                if (x - 1 >= 0 && y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) != board->color) {
                     QUEUE_PLAY(x, y, x - 1, y - 1);
                 }
-                if (x + 1 <= 7 && y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) != color) {
+                if (x + 1 <= 7 && y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) != board->color) {
                     QUEUE_PLAY(x, y, x + 1, y - 1);
                 }
-                if (x - 1 >= 0 && y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) != color) {
+                if (x - 1 >= 0 && y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) != board->color) {
                     QUEUE_PLAY(x, y, x - 1, y + 1);
                 }
-                if (x + 1 <= 7 && y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) != color) {
+                if (x + 1 <= 7 && y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) != board->color) {
                     QUEUE_PLAY(x, y, x + 1, y + 1);
                 }
                 if (piece == 'K') {
@@ -523,23 +525,21 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board, int c
         }
     }
 
-    max_valid_plays = valid_plays_i > max_valid_plays ? valid_plays_i : max_valid_plays;
-
     return valid_plays_i;
 }
 
-static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t * board, int color) {
-    int valid_plays_i = enumerate_possible_plays(valid_plays, board, color);
-    char king_piece = color == WHITE_COLOR ? 'K' : 'k';
+static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t * board) {
+    int valid_plays_i = enumerate_possible_plays(valid_plays, board);
+    char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
 
     board_t board_cpy;
-    play_t cpy_valid_plays[64];
+    play_t cpy_valid_plays[128];
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
         just_play(&board_cpy, &valid_plays[i], 0);
 
-        int cpy_valid_plays_i = enumerate_possible_plays(cpy_valid_plays, &board_cpy, opposite_color(color));
+        int cpy_valid_plays_i = enumerate_possible_plays(cpy_valid_plays, &board_cpy);
 
         for (int j = 0; j < cpy_valid_plays_i; ++j) {
             char x = cpy_valid_plays[j].to_x;
@@ -555,9 +555,9 @@ static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t
     return valid_plays_i;
 }
 
-static int king_threatened(board_t * board, int color) {
-    char king_piece = color == WHITE_COLOR ? 'K' : 'k';
-    play_t valid_plays[64];
+static int king_threatened(board_t * board) {
+    char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
+    play_t valid_plays[128];
 
     char en_passant_x = board->en_passant_x;
     char white_left_castling = board->white_left_castling;
@@ -570,14 +570,16 @@ static int king_threatened(board_t * board, int color) {
     board->white_right_castling = 0;
     board->black_left_castling = 0;
     board->black_right_castling = 0;
+    board->color = opposite_color(board->color);
 
-    int valid_plays_i = enumerate_possible_plays(valid_plays, board, opposite_color(color));
+    int valid_plays_i = enumerate_possible_plays(valid_plays, board);
 
     board->en_passant_x = en_passant_x;
     board->white_left_castling = white_left_castling;
     board->white_right_castling = white_right_castling;
     board->black_left_castling = black_left_castling;
     board->black_right_castling = black_right_castling;
+    board->color = opposite_color(board->color);
 
     for (int i = 0; i < valid_plays_i; ++i) {
         char x = valid_plays[i].to_x;
@@ -591,20 +593,20 @@ static int king_threatened(board_t * board, int color) {
     return 0;
 }
 
-static int minimax(board_t * board, int color, int depth, int alpha, int beta, int initial_score) {
+static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score) {
     if (depth == 0) {
         return initial_score;
     }
 
     board_t board_cpy;
-    play_t valid_plays[64];
+    play_t valid_plays[128];
 
-    int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, board, color);
+    int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, board);
     if (valid_plays_i == 0) {
-        if (king_threatened(board, color)) {
-            return color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
+        if (king_threatened(board)) {
+            return board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
         } else {
-            return color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
+            return board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
         }
     }
 
@@ -614,10 +616,10 @@ static int minimax(board_t * board, int color, int depth, int alpha, int beta, i
         memcpy(&board_cpy, board, sizeof(board_t));
 
         int score = just_play(&board_cpy, &valid_plays[i], initial_score);
-        int score_extra = color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
+        int score_extra = board->color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
-        score = minimax(&board_cpy, opposite_color(color), depth - 1, alpha, beta, score + score_extra);
-        if (color == WHITE_COLOR) {
+        score = minimax(&board_cpy, depth - 1, alpha, beta, score + score_extra);
+        if (board->color == WHITE_COLOR) {
             if (best_score == NO_SCORE || score > best_score) {
                 best_score = score;
             }
@@ -641,13 +643,13 @@ static int minimax(board_t * board, int color, int depth, int alpha, int beta, i
 
 static int ai_play(play_t * play) {
     board_t board_cpy;
-    play_t valid_plays[64];
+    play_t valid_plays[128];
     int alpha = -2147483644;
     int beta = 2147483644;
 
-    int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, &board, player_color);
+    int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, &board);
     if (valid_plays_i == 0) {
-        if (king_threatened(&board, player_color)) {
+        if (king_threatened(&board)) {
             return CHECK_MATE;
         } else {
             return DRAW;
@@ -660,11 +662,11 @@ static int ai_play(play_t * play) {
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
         int score = just_play(&board_cpy, &valid_plays[i], 0);
-        int score_extra = player_color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
+        int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
-        score = minimax(&board_cpy, opposite_color(player_color), 5, alpha, beta, score + score_extra);
+        score = minimax(&board_cpy, 5, alpha, beta, score + score_extra);
 
-        if (player_color == WHITE_COLOR) {
+        if (board.color == WHITE_COLOR) {
             if (best_score == NO_SCORE || score > best_score) {
                 best_score = score;
                 best_play = i;
@@ -805,8 +807,8 @@ static void reset_board() {
     board.white_right_castling = 1;
     board.black_left_castling = 1;
     board.black_right_castling = 1;
-    player_color = WHITE_COLOR;
-    board.halfmoves = 0; // TODO:
+    board.color = WHITE_COLOR;
+    board.halfmoves = 0;
     board.fullmoves = 0;
 }
 
@@ -822,7 +824,7 @@ static void text_mode() {
 
     int player_one_is_human;
     int player_two_is_human;
-    play_t valid_plays[64];
+    play_t valid_plays[128];
 
     while (1) {
         fgets(input_buffer, 1024, stdin);
@@ -853,14 +855,14 @@ static void text_mode() {
 
     while (1) {
         print_board();
-        printf("\n%s to play...\n\n", player_color == WHITE_COLOR ? "White" : "Black");
+        printf("\n%s to play...\n\n", board.color == WHITE_COLOR ? "White" : "Black");
 
-        int player_is_human = player_color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
+        int player_is_human = board.color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
 
         if (player_is_human) {
-            int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, &board, player_color);
+            int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, &board);
             if (valid_plays_i == 0) {
-                if (king_threatened(&board, player_color)) {
+                if (king_threatened(&board)) {
                     printf("Player lost.\n");
                 } else {
                     printf("Game is drawn.\n");
@@ -929,7 +931,7 @@ static void uci_mode() {
             } else {
                 str = strstr(input_buffer, " fen ");
                 if (str) {
-                    fen_to_board(&board, &player_color, str + strlen(" fen "));
+                    fen_to_board(&board, str + strlen(" fen "));
                 }
             }
 

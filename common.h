@@ -16,6 +16,7 @@ typedef struct {
     char black_right_castling;
     char halfmoves;
     char fullmoves;
+    char color;
 } board_t;
 
 typedef struct {
@@ -37,7 +38,7 @@ typedef struct {
 #define PROMOTION_BISHOP 3
 #define PROMOTION_ROOK 4
 
-void fen_to_board(board_t * board, char * color, const char * fen_str);
-void board_to_fen(char * fen_str, const board_t * board, char color);
+void fen_to_board(board_t * board, const char * fen_str);
+void board_to_fen(char * fen_str, const board_t * board);
 
 #endif
