@@ -2,6 +2,8 @@
 
 static char input_buffer[1024];
 
+static char past_fens[256][60];
+static unsigned char past_plays_count;
 static board_t board;
 static char last_play_x = -1;
 static char last_play_y = -1;
@@ -205,6 +207,8 @@ static int just_play(board_t * board, const play_t * play, int score) {
 }
 
 static void actual_play(const play_t * play) {
+    board_to_short_string(past_fens[past_plays_count++], &board);
+
     char moving_piece = board.b[play->from_y * 8 + play->from_x];
     if (moving_piece == 'P' || moving_piece == 'p' || board.b[play->to_y * 8 + play->to_x] != ' ') {
         board.halfmoves = 0;
@@ -217,6 +221,7 @@ static void actual_play(const play_t * play) {
     if (board.color == BLACK_COLOR) {
         board.fullmoves++;
     }
+
     just_play(&board, play, 0);
 }
 
@@ -604,6 +609,9 @@ static int king_threatened(board_t * board) {
 }
 
 static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score) {
+    if (board->halfmoves == 50) {
+        return board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
+    }
     if (depth == 0) {
         return initial_score;
     }
@@ -616,7 +624,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         if (king_threatened(board)) {
             return board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
         } else {
-            return board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
+            return board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
         }
     }
 
@@ -678,7 +686,21 @@ static int ai_play(play_t * play) {
         int score = just_play(&board_cpy, &valid_plays[i], 0);
         int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
-        score = minimax(&board_cpy, 5, alpha, beta, score + score_extra);
+        board_to_short_string(input_buffer, &board_cpy);
+        int position_repeated = 0;
+        for (int pos = 0; pos < past_plays_count; ++pos) {
+            if (strcmp(past_fens[pos], input_buffer) == 0) {
+                position_repeated++;
+                if (position_repeated == 2) {
+                    break;
+                }
+            }
+        }
+        if (position_repeated == 2) {
+            score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
+        } else {
+            score = minimax(&board_cpy, 5, alpha, beta, score + score_extra);
+        }
 
         if (score != NO_SCORE) {
             if (board.color == WHITE_COLOR) {
@@ -703,7 +725,7 @@ static int ai_play(play_t * play) {
         }
     }
 
-    if (best_play == NO_SCORE) {
+    if (best_score == NO_SCORE) {
         if (king_threatened(&board)) {
             return CHECK_MATE;
         } else {
@@ -834,6 +856,7 @@ static void reset_board() {
     board.color = WHITE_COLOR;
     board.halfmoves = 0;
     board.fullmoves = 0;
+    past_plays_count = 0;
 }
 
 static void send_uci_command(FILE * fd, const char * str) {

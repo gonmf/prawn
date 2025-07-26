@@ -149,3 +149,48 @@ void board_to_fen(char * fen_str, const board_t * board) {
 
   fen_str_i += sprintf(fen_str + fen_str_i, "%d", board->fullmoves);
 }
+
+void board_to_short_string(char * str, const board_t * board) {
+  int idx = 0;
+  int blank = 0;
+
+  for (int y = 0; y < 8; ++y) {
+    for (int x = 0; x < 8; ++x) {
+      if (board->b[y * 8 + x] == ' ') {
+        blank++;
+      } else {
+        if (blank > 0) {
+          str[idx++] = ' ' + blank;
+          blank = 0;
+        }
+        str[idx++] = board->b[y * 8 + x];
+      }
+    }
+  }
+
+  if (blank > 0) {
+    str[idx++] = ' ' + blank;
+  }
+
+  int castling = board->color == WHITE_COLOR ? 1 : 0;
+  if (board->white_left_castling) {
+    castling = (castling << 1) | 1;
+  }
+  if (board->white_right_castling) {
+    castling = (castling << 1) | 1;
+  }
+  if (board->black_left_castling) {
+    castling = (castling << 1) | 1;
+  }
+  if (board->black_right_castling) {
+    castling = (castling << 1) | 1;
+  }
+
+  str[idx++] = ' ' + castling;
+
+  if (board->en_passant_x != NO_EN_PASSANT) {
+    str[idx++] = 'a' + board->en_passant_x;
+  }
+
+  str[idx] = 0;
+}

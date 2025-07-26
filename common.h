@@ -14,8 +14,8 @@ typedef struct {
     char white_right_castling;
     char black_left_castling;
     char black_right_castling;
-    char halfmoves;
-    char fullmoves;
+    unsigned char halfmoves;
+    unsigned char fullmoves;
     char color;
 } board_t;
 
@@ -40,5 +40,6 @@ typedef struct {
 
 void fen_to_board(board_t * board, const char * fen_str);
 void board_to_fen(char * fen_str, const board_t * board);
+void board_to_short_string(char * str, const board_t * board);
 
 #endif
