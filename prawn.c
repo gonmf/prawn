@@ -54,7 +54,7 @@ static void print_board() {
         }
     }
     printf("╚═══╧═══╧═══╧═══╧═══╧═══╧═══╧═══╝ ┊\n");
-    printf("╰┈a┈┈┈b┈┈┈c┈┈┈d┈┈┈e┈┈┈f┈┈┈g┈┈┈h┈┈┈╯\n");
+    printf("╰┈a┈┈┈b┈┈┈c┈┈┈d┈┈┈e┈┈┈f┈┈┈g┈┈┈h┈┈┈╯\n\n");
 }
 
 static int opposite_color(int color) {
@@ -543,6 +543,203 @@ static int enumerate_possible_plays(play_t * valid_plays, board_t * board) {
     return valid_plays_i;
 }
 
+static int enumerate_possible_capture_plays(play_t * valid_plays, board_t * board) {
+    int valid_plays_i = 0;
+    int opnt_color = opposite_color(board->color);
+
+    for (int y = 0; y < 8; y++) {
+        for (int x = 0; x < 8; x++) {
+            char piece = board->b[y * 8 + x];
+            if (determine_color(piece) != board->color) {
+                continue;
+            }
+
+            if (piece == 'P') {
+                if (x < 7 && determine_color(board->b[(y - 1) * 8 + x + 1]) == opnt_color) {
+                    QUEUE_PLAY(x + 1, y - 1);
+                }
+                if (x > 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) == opnt_color) {
+                    QUEUE_PLAY(x - 1, y - 1);
+                }
+                continue;
+            }
+            if (piece == 'p') {
+                if (x < 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) == opnt_color) {
+                    QUEUE_PLAY(x + 1, y + 1);
+                }
+                if (x > 0 && determine_color(board->b[(y + 1) * 8 + x - 1]) == opnt_color) {
+                    QUEUE_PLAY(x - 1, y + 1);
+                }
+                continue;
+            }
+            if (piece == 'N' || piece == 'n') {
+                char x2 = x - 1;
+                char y2 = y - 2;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x - 1;
+                y2 = y + 2;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x + 1;
+                y2 = y + 2;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x + 1;
+                y2 = y - 2;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x - 2;
+                y2 = y - 1;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x - 2;
+                y2 = y + 1;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x + 2;
+                y2 = y + 1;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                x2 = x + 2;
+                y2 = y - 1;
+                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == opnt_color) {
+                    QUEUE_PLAY(x2, y2);
+                }
+                continue;
+            }
+            if (piece == 'R' || piece == 'r' || piece == 'Q' || piece == 'q') {
+                for (char dst = 1; x - dst >= 0; dst++) {
+                    int piece_color = determine_color(board->b[y * 8 + x - dst]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x - dst, y);
+                    }
+                    break;
+                }
+                for (char dst = 1; x + dst <= 7; dst++) {
+                    int piece_color = determine_color(board->b[y * 8 + x + dst]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x + dst, y);
+                    }
+                    break;
+                }
+                for (char dst = 1; y - dst >= 0; dst++) {
+                    int piece_color = determine_color(board->b[(y - dst) * 8 + x]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x, y - dst);
+                    }
+                    break;
+                }
+                for (char dst = 1; y + dst <= 7; dst++) {
+                    int piece_color = determine_color(board->b[(y + dst) * 8 + x]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x, y + dst);
+                    }
+                    break;
+                }
+                if (piece == 'R' || piece == 'r') {
+                    continue;
+                }
+            }
+            if (piece == 'B' || piece == 'b' || piece == 'Q' || piece == 'q') {
+                for (char dst = 1; x - dst >= 0 && y - dst >= 0; dst++) {
+                    int piece_color = determine_color(board->b[(y - dst) * 8 + x - dst]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x - dst, y - dst);
+                    }
+                    break;
+                }
+                for (char dst = 1; x + dst <= 7 && y - dst >= 0; dst++) {
+                    int piece_color = determine_color(board->b[(y - dst) * 8 + x + dst]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x + dst, y - dst);
+                    }
+                    break;
+                }
+                for (char dst = 1; x - dst >= 0 && y + dst <= 7; dst++) {
+                    int piece_color = determine_color(board->b[(y + dst) * 8 + x - dst]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x - dst, y + dst);
+                    }
+                    break;
+                }
+                for (char dst = 1; x + dst <= 7 && y + dst <= 7; dst++) {
+                    int piece_color = determine_color(board->b[(y + dst) * 8 + x + dst]);
+                    if (piece_color == NO_COLOR) {
+                        continue;
+                    }
+                    if (piece_color == opnt_color) {
+                        QUEUE_PLAY(x + dst, y + dst);
+                    }
+                    break;
+                }
+                continue;
+            }
+            if (piece == 'K' || piece == 'k') {
+                if (x - 1 >= 0) {
+                    if (determine_color(board->b[y * 8 + x - 1]) == opnt_color) {
+                        QUEUE_PLAY(x - 1, y);
+                    }
+                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) == opnt_color) {
+                        QUEUE_PLAY(x - 1, y - 1);
+                    }
+                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) == opnt_color) {
+                        QUEUE_PLAY(x - 1, y + 1);
+                    }
+                }
+                if (x + 1 <= 7) {
+                    if (determine_color(board->b[y * 8 + x + 1]) == opnt_color) {
+                        QUEUE_PLAY(x + 1, y);
+                    }
+                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) == opnt_color) {
+                        QUEUE_PLAY(x + 1, y - 1);
+                    }
+                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) == opnt_color) {
+                        QUEUE_PLAY(x + 1, y + 1);
+                    }
+                }
+                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) == opnt_color) {
+                    QUEUE_PLAY(x, y - 1);
+                }
+                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) == opnt_color) {
+                    QUEUE_PLAY(x, y + 1);
+                }
+                continue;
+            }
+        }
+    }
+
+    return valid_plays_i;
+}
+
 static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t * board) {
     int valid_plays_i = enumerate_possible_plays(valid_plays, board);
     char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
@@ -554,7 +751,7 @@ static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t
         memcpy(&board_cpy, board, sizeof(board_t));
         just_play(&board_cpy, &valid_plays[i], 0);
 
-        int cpy_valid_plays_i = enumerate_possible_plays(cpy_valid_plays, &board_cpy);
+        int cpy_valid_plays_i = enumerate_possible_capture_plays(cpy_valid_plays, &board_cpy);
 
         for (int j = 0; j < cpy_valid_plays_i; ++j) {
             char x = cpy_valid_plays[j].to_x;
@@ -871,7 +1068,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
 
     while (1) {
         print_board();
-        printf("\n%s to play...\n\n", board.color == WHITE_COLOR ? "White" : "Black");
+        printf("%s to play...\n\n", board.color == WHITE_COLOR ? "White" : "Black");
 
         int player_is_human = board.color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
 
