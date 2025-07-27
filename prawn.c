@@ -225,7 +225,7 @@ static void actual_play(const play_t * play) {
     just_play(&board, play, 0);
 }
 
-static int enumerate_possible_plays(play_t * valid_plays, board_t * board) {
+static int enumerate_all_possible_plays(play_t * valid_plays, board_t * board) {
     int valid_plays_i = 0;
     int opnt_color = opposite_color(board->color);
 
@@ -740,8 +740,8 @@ static int enumerate_possible_capture_plays(play_t * valid_plays, board_t * boar
     return valid_plays_i;
 }
 
-static int enumerate_possible_plays_with_safe_king(play_t * valid_plays, board_t * board) {
-    int valid_plays_i = enumerate_possible_plays(valid_plays, board);
+static int enumerate_legal_plays(play_t * valid_plays, board_t * board) {
+    int valid_plays_i = enumerate_all_possible_plays(valid_plays, board);
     char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
 
     board_t board_cpy;
@@ -784,7 +784,7 @@ static int king_threatened(board_t * board) {
     board->black_right_castling = 0;
     board->color = opposite_color(board->color);
 
-    int valid_plays_i = enumerate_possible_plays(valid_plays, board);
+    int valid_plays_i = enumerate_possible_capture_plays(valid_plays, board);
 
     board->en_passant_x = en_passant_x;
     board->white_left_castling = white_left_castling;
@@ -816,7 +816,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     board_t board_cpy;
     play_t valid_plays[128];
 
-    int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, board);
+    int valid_plays_i = enumerate_legal_plays(valid_plays, board);
     if (valid_plays_i == 0) {
         if (king_threatened(board)) {
             return board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
@@ -866,7 +866,7 @@ static int ai_play(play_t * play) {
     int alpha = -2147483644;
     int beta = 2147483644;
 
-    int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, &board);
+    int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
     if (valid_plays_i == 0) {
         if (king_threatened(&board)) {
             return CHECK_MATE;
@@ -1073,7 +1073,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
         int player_is_human = board.color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
 
         if (player_is_human) {
-            int valid_plays_i = enumerate_possible_plays_with_safe_king(valid_plays, &board);
+            int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
             if (valid_plays_i == 0) {
                 if (king_threatened(&board)) {
                     printf("Player lost.\n");
