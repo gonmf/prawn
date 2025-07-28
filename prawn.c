@@ -236,6 +236,8 @@ static int enumerate_all_possible_plays(play_t * valid_plays, board_t * board) {
                 continue;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
+
             if (piece == 'P') {
                 if (board->b[(y - 1) * 8 + x] == ' ') {
                     if (y == 1) {
@@ -1028,6 +1030,7 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
             }
             if (play_is_valid) {
                 char from_piece = board.b[play->from_y * 8 + play->from_x];
+                play->promotion_option = 0;
                 if (play->from_y == 1 && play->to_y == 0 && from_piece == 'P') {
                     play->promotion_option = input_promotion_piece();
                 } else if (play->from_y == 6 && play->to_y == 7 && from_piece == 'p') {
