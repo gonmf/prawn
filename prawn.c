@@ -16,6 +16,9 @@ static char last_play_y = -1;
 #define MAX(A,B) ((A) > (B) ? (A) : (B))
 #define MIN(A,B) ((A) < (B) ? (A) : (B))
 
+static search_node_t * search_tree;
+static search_node_t * search_node;
+
 #define QUEUE_PLAY(TO_X, TO_Y) \
     valid_plays[valid_plays_i].from_x = x; \
     valid_plays[valid_plays_i].from_y = y; \
@@ -206,7 +209,50 @@ static int just_play(board_t * board, const play_t * play, int score) {
     return score;
 }
 
+static search_node_t * find_or_create_search_branch(search_node_t * branch, const play_t * play) {
+    if (branch->children_nr == -1) {
+        search_node_t * new_leaf = malloc(sizeof(search_node_t));
+        new_leaf->children_nr = -1;
+
+        branch->children[0] = new_leaf;
+        branch->from_x[0] = play->from_x;
+        branch->from_y[0] = play->from_y;
+        branch->to_x[0] = play->to_x;
+        branch->to_y[0] = play->to_y;
+        branch->score[0] = 0;
+        branch->children_nr = 1;
+        return new_leaf;
+    }
+
+    for (int i = 0; i < branch->children_nr; ++i) {
+        if (branch->from_x[i] == play->from_x && branch->from_y[i] == play->from_y && branch->to_x[i] == play->to_x && branch->to_x[i] == play->to_x) {
+            return branch->children[i];
+        }
+    }
+
+    search_node_t * new_leaf = malloc(sizeof(search_node_t));
+    new_leaf->children_nr = -1;
+
+    int i = branch->children_nr;
+    branch->children[i] = new_leaf;
+    branch->from_x[i] = play->from_x;
+    branch->from_y[i] = play->from_y;
+    branch->to_x[i] = play->to_x;
+    branch->to_y[i] = play->to_y;
+    branch->score[i] = 0;
+    branch->children_nr++;
+    return new_leaf;
+}
+
 static void actual_play(const play_t * play) {
+    if (search_tree == NULL) {
+        search_tree = malloc(sizeof(search_node_t));
+        search_tree->children_nr = -1;
+        search_node = search_tree;
+    }
+
+    find_or_create_search_branch(search_node, play);
+
     board_to_short_string(past_fens[past_plays_count++], &board);
 
     char moving_piece = board.b[play->from_y * 8 + play->from_x];
@@ -740,7 +786,19 @@ static int enumerate_possible_capture_plays(play_t * valid_plays, board_t * boar
     return valid_plays_i;
 }
 
-static int enumerate_legal_plays(play_t * valid_plays, board_t * board) {
+static int enumerate_legal_plays(play_t * valid_plays, board_t * board, search_node_t * search_branch) {
+    if (search_branch->children_nr != -1) {
+        int valid_plays_i = search_branch->children_nr;
+
+        for (int i = 0; i < search_branch->children_nr; ++i) {
+            valid_plays[i].from_x = search_branch->from_x[i];
+            valid_plays[i].from_y = search_branch->from_y[i];
+            valid_plays[i].to_x = search_branch->to_x[i];
+            valid_plays[i].to_y = search_branch->to_y[i];
+            return valid_plays_i;
+        }
+    }
+
     int valid_plays_i = enumerate_all_possible_plays(valid_plays, board);
     char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
 
@@ -762,6 +820,16 @@ static int enumerate_legal_plays(play_t * valid_plays, board_t * board) {
                 break;
             }
         }
+    }
+
+
+    for (int i = 0; i < valid_plays_i; ++i) {
+        search_branch->children[i] = NULL;
+        search_branch->from_x[i] = valid_plays[i].from_x;
+        search_branch->from_y[i] = valid_plays[i].from_y;
+        search_branch->to_x[i] = valid_plays[i].to_x;
+        search_branch->to_y[i] = valid_plays[i].to_y;
+        search_branch->score[i] = NO_SCORE;
     }
 
     return valid_plays_i;
@@ -805,7 +873,7 @@ static int king_threatened(board_t * board) {
     return 0;
 }
 
-static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score) {
+static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score, search_node_t * search_branch) {
     if (board->halfmoves == 50) {
         return board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
     }
@@ -816,7 +884,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     board_t board_cpy;
     play_t valid_plays[128];
 
-    int valid_plays_i = enumerate_legal_plays(valid_plays, board);
+    int valid_plays_i = enumerate_legal_plays(valid_plays, board, search_branch);
     if (valid_plays_i == 0) {
         if (king_threatened(board)) {
             return board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
@@ -833,7 +901,8 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         int score = just_play(&board_cpy, &valid_plays[i], initial_score);
         int score_extra = board->color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
-        score = minimax(&board_cpy, depth - 1, alpha, beta, score + score_extra);
+        search_node_t * child_branch = find_or_create_search_branch(search_branch, &valid_plays[i]);
+        score = minimax(&board_cpy, depth - 1, alpha, beta, score + score_extra, child_branch);
 
         if (score != NO_SCORE) {
             if (board->color == WHITE_COLOR) {
@@ -866,7 +935,7 @@ static int ai_play(play_t * play) {
     int alpha = -2147483644;
     int beta = 2147483644;
 
-    int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
+    int valid_plays_i = enumerate_legal_plays(valid_plays, &board, search_node);
     if (valid_plays_i == 0) {
         if (king_threatened(&board)) {
             return CHECK_MATE;
@@ -896,7 +965,8 @@ static int ai_play(play_t * play) {
         if (position_repeated == 2) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
-            score = minimax(&board_cpy, 5, alpha, beta, score + score_extra);
+            search_node_t * search_branch = find_or_create_search_branch(search_node, play);
+            score = minimax(&board_cpy, 5, alpha, beta, score + score_extra, search_branch);
         }
 
         if (score != NO_SCORE) {
@@ -1054,6 +1124,8 @@ static void reset_board() {
     board.halfmoves = 0;
     board.fullmoves = 0;
     past_plays_count = 0;
+
+    search_node = search_tree;
 }
 
 static void send_uci_command(FILE * fd, const char * str) {
@@ -1073,7 +1145,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
         int player_is_human = board.color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
 
         if (player_is_human) {
-            int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
+            int valid_plays_i = enumerate_legal_plays(valid_plays, &board, search_node);
             if (valid_plays_i == 0) {
                 if (king_threatened(&board)) {
                     printf("Player lost.\n");
@@ -1173,11 +1245,11 @@ static void uci_mode() {
             char * str = strstr(input_buffer, " startpos ");
             if (str) {
                 reset_board();
-            } else {
-                str = strstr(input_buffer, " fen ");
-                if (str) {
-                    fen_to_board(&board, str + strlen(" fen "));
-                }
+            // } else {
+            //     str = strstr(input_buffer, " fen ");
+            //     if (str) {
+            //         fen_to_board(&board, str + strlen(" fen "));
+            //     }
             }
 
             str = strstr(input_buffer, " moves ");

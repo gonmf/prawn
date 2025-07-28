@@ -27,6 +27,17 @@ typedef struct {
     char promotion_option;
 } play_t;
 
+// Meant to fit in 1024 bytes (1009 bytes bellow)
+typedef struct __search_node_ {
+    char children_nr;
+    struct __search_node_ * children[63];
+    char from_x[63];
+    char from_y[63];
+    char to_x[63];
+    char to_y[63];
+    int score[63];
+} search_node_t;
+
 #define WHITE_COLOR 1
 #define BLACK_COLOR 2
 #define NO_COLOR 3
