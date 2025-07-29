@@ -33,7 +33,8 @@ static int determine_color(char c) {
     return c > 'a' ? BLACK_COLOR : WHITE_COLOR;
 }
 
-static int allocations = 0;
+static search_node_t * database;
+static unsigned int allocations = 0;
 static search_node_t * freed_nodes;
 
 static search_node_t * alloc_node() {
@@ -44,9 +45,13 @@ static search_node_t * alloc_node() {
         return ret;
     }
 
-    search_node_t * ret = malloc(sizeof(search_node_t));
+    if (allocations == 20000000) {
+        printf("PANIC: out of memory\n");
+        exit(1);
+    }
+
+    search_node_t * ret = &database[allocations++];
     ret->plays_nr = -1;
-    allocations++;
     return ret;
 }
 
@@ -1395,6 +1400,7 @@ static void show_help() {
 }
 
 int main(int argc, char * argv[]) {
+    database = malloc(20000000 * sizeof(search_node_t));
     search_tree = alloc_node();
     search_node = search_tree;
 

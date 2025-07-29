@@ -31,6 +31,7 @@ typedef struct __search_node_ search_node_t;
 
 typedef struct {
     search_node_t * child;
+    // unsigned int child_index;
     char from_x;
     char from_y;
     char to_x;
