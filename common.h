@@ -27,6 +27,15 @@ typedef struct {
     char promotion_option;
 } play_t;
 
+#define TYPE_EXACT 1
+#define TYPE_UPPER_BOUND 2
+#define TYPE_LOWER_BOUND 3
+
+typedef struct {
+    int score;
+    char type;
+} saved_score_t;
+
 #define WHITE_COLOR 1
 #define BLACK_COLOR 2
 #define NO_COLOR 3

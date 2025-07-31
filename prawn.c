@@ -1,10 +1,15 @@
-// TODO: implement correctly castling (no threats to path of king)
+// TODO:
+// implement correctly castling (no threats to path of king)
+// add move quiescence
+// add zobrist hashing
+// more efficient hash table
 
 #include "common.h"
+#include <search.h>
 
 static char input_buffer[1024];
 
-static char past_fens[256][60];
+static char past_positions[256][56];
 static unsigned char past_plays_count;
 static board_t board;
 static char last_play_x = -1;
@@ -25,6 +30,10 @@ static char last_play_y = -1;
     valid_plays[valid_plays_i].to_y = (TO_Y); \
     valid_plays_i = valid_plays_i + 1;
 
+static saved_score_t * saved_scores_pool;
+static int saved_scores_pool_idx = 0;
+static int leafs_explored = 0;
+
 static int determine_color(char c) {
     if (c == ' ') {
         return NO_COLOR;
@@ -32,17 +41,63 @@ static int determine_color(char c) {
     return c > 'a' ? BLACK_COLOR : WHITE_COLOR;
 }
 
-static void print_board() {
-    board_to_fen(input_buffer, &board);
+// maximum output string length seen: 53
+static void board_to_hash_string(char * str, const board_t * board, int depth) {
+    int idx = 0;
+    int blank = 0;
+
+    for (int p = 0; p < 64; ++p) {
+        if (board->b[p] == ' ') {
+            blank++;
+        } else {
+            if (blank > 0) {
+                str[idx++] = ' ' + blank;
+                blank = 0;
+            }
+            str[idx++] = board->b[p];
+        }
+    }
+
+    if (blank > 0) {
+        str[idx++] = ' ' + blank;
+    }
+
+    int castling = board->color == WHITE_COLOR ? 1 : 0;
+    if (board->white_left_castling) {
+        castling = (castling << 1) | 1;
+    }
+    if (board->white_right_castling) {
+        castling = (castling << 1) | 1;
+    }
+    if (board->black_left_castling) {
+        castling = (castling << 1) | 1;
+    }
+    if (board->black_right_castling) {
+        castling = (castling << 1) | 1;
+    }
+
+    str[idx++] = ' ' + castling;
+
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        str[idx++] = 'a' + board->en_passant_x;
+    }
+    str[idx++] = '0' + depth;
+
+    str[idx] = 0;
+}
+
+
+static void print_board(board_t * board) {
+    board_to_fen(input_buffer, board);
     printf("%s\n", input_buffer);
     printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
         printf("║ ");
         for (int x = 0; x < 8; x++) {
             if (x == last_play_x && y == last_play_y) {
-                printf("\033[32m%c\e[0m", board.b[y * 8 + x]);
+                printf("\033[32m%c\e[0m", board->b[y * 8 + x]);
             } else {
-                printf("%c", board.b[y * 8 + x]);
+                printf("%c", board->b[y * 8 + x]);
             }
             if (x < 7) {
                 printf(" │ ");
@@ -209,7 +264,7 @@ static int just_play(board_t * board, const play_t * play, int score) {
 }
 
 static void actual_play(const play_t * play) {
-    board_to_short_string(past_fens[past_plays_count++], &board);
+    board_to_short_string(past_positions[past_plays_count++], &board);
 
     char moving_piece = board.b[play->from_y * 8 + play->from_x];
     if (moving_piece == 'P' || moving_piece == 'p' || board.b[play->to_y * 8 + play->to_x] != ' ') {
@@ -998,7 +1053,38 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     if (board->halfmoves == 50) {
         return board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
     }
+
+    int alpha_orig = alpha;
+    int beta_orig = beta;
+
+    ENTRY item;
+    item.key = malloc(56);
+    board_to_hash_string(item.key, board, depth);
+
+    ENTRY * found = hsearch(item, FIND);
+    if (found) {
+        saved_score_t * ss = (saved_score_t *)found->data;
+        if (ss->type == TYPE_EXACT) {
+            return ss->score;
+        } else if (ss->type == TYPE_LOWER_BOUND && ss->score > alpha) {
+            alpha = ss->score;
+        } else if (ss->type == TYPE_UPPER_BOUND && ss->score < beta) {
+            beta = ss->score;
+        }
+
+        if (alpha >= beta) {
+            return ss->score;
+        }
+    }
+
     if (depth == 0) {
+        saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+        ss->score = initial_score;
+        ss->type = TYPE_EXACT;
+        item.data = ss;
+        hsearch(item, ENTER);
+
+        leafs_explored++;
         return initial_score;
     }
 
@@ -1008,9 +1094,25 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     int valid_plays_i = enumerate_legal_plays(valid_plays, board);
     if (valid_plays_i == 0) {
         if (king_threatened(board)) {
-            return board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
+            int score = board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
+
+            saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+            ss->score = score;
+            ss->type = TYPE_EXACT;
+            item.data = ss;
+            hsearch(item, ENTER);
+
+            return score;
         } else {
-            return board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
+            int score = board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
+
+            saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+            ss->score = score;
+            ss->type = TYPE_EXACT;
+            item.data = ss;
+            hsearch(item, ENTER);
+
+            return score;
         }
     }
 
@@ -1046,6 +1148,19 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         }
     }
 
+    saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+    ss->score = best_score;
+    if (best_score <= alpha_orig) {
+        ss->type = TYPE_UPPER_BOUND;
+    } else if (best_score >= beta_orig) {
+        ss->type = TYPE_LOWER_BOUND;
+    } else {
+        ss->type = TYPE_EXACT;
+    }
+
+    item.data = ss;
+    hsearch(item, ENTER);
+
     return best_score;
 }
 
@@ -1066,6 +1181,8 @@ static int ai_play(play_t * play) {
 
     int best_score = NO_SCORE;
     int best_play = 0;
+    hcreate(2000000);
+    leafs_explored = 0;
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
@@ -1073,9 +1190,10 @@ static int ai_play(play_t * play) {
         int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
         board_to_short_string(input_buffer, &board_cpy);
+
         int position_repeated = 0;
         for (int pos = 0; pos < past_plays_count; ++pos) {
-            if (strcmp(past_fens[pos], input_buffer) == 0) {
+            if (strcmp(past_positions[pos], input_buffer) == 0) {
                 position_repeated++;
                 if (position_repeated == 2) {
                     break;
@@ -1110,6 +1228,10 @@ static int ai_play(play_t * play) {
             }
         }
     }
+
+    printf("[pool0=%d, leafs=%d]\n", saved_scores_pool_idx, leafs_explored);
+    hdestroy();
+    saved_scores_pool_idx = 0;
 
     if (best_score == NO_SCORE) {
         if (king_threatened(&board)) {
@@ -1257,7 +1379,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
     play_t valid_plays[128];
 
     while (1) {
-        print_board();
+        print_board(&board);
         printf("%s to play...\n\n", board.color == WHITE_COLOR ? "White" : "Black");
 
         int player_is_human = board.color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
@@ -1426,6 +1548,7 @@ static void show_help() {
 }
 
 int main(int argc, char * argv[]) {
+    saved_scores_pool = malloc(5000000 * sizeof(saved_score_t));
     reset_board();
 
     for (int i = 1; i < argc; ++i) {
