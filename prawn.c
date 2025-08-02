@@ -1,7 +1,6 @@
 // TODO:
 // implement correctly castling (no threats to path of king)
 // add move quiescence
-// add zobrist hashing
 // more efficient hash table
 
 #include "common.h"
@@ -34,7 +33,199 @@ static char * resuable_alloc = NULL;
 
 static saved_score_t * saved_scores_pool;
 static int saved_scores_pool_idx = 0;
+static int max_saved_scores_pool_idx = 0;
 static int leafs_explored = 0;
+static int max_leafs_explored = 0;
+
+static long int zobrist_map[64][12];
+static long int zobrist_depth[MAX_DEPTH + 1];
+static long int zobrist_en_passant[8];
+static long int zobrist_castling[4];
+
+static long int generate_mask() {
+    long int candidate = (((long int)rand()) <<  0) ^
+                         (((long int)rand()) << 15) ^
+                         (((long int)rand()) << 30) ^
+                         (((long int)rand()) << 45) ^
+                         (((long int)rand()) << 60);
+
+    for (int p = 0; p < 64; ++p) {
+        for (int t = 0; t < 12; ++t) {
+            if (zobrist_map[p][t] == candidate) {
+                return generate_mask();
+            }
+        }
+    }
+    for (int t = 0; t < MAX_DEPTH + 1; ++t) {
+        if (zobrist_depth[t] == candidate) {
+            return generate_mask();
+        }
+    }
+    for (int t = 0; t < 4; ++t) {
+        if (zobrist_castling[t] == candidate) {
+            return generate_mask();
+        }
+    }
+
+    return candidate;
+}
+
+static void populate_zobrist_masks() {
+    for (int p = 0; p < 64; ++p) {
+        for (int t = 0; t < 12; ++t) {
+            zobrist_map[p][t] = generate_mask();
+        }
+    }
+
+    for (int t = 0; t < MAX_DEPTH + 1; ++t) {
+        zobrist_depth[t] = generate_mask();
+    }
+
+    for (int t = 0; t < 4; ++t) {
+        zobrist_castling[t] = generate_mask();
+    }
+}
+
+static long int update_hash_with_piece(long int hash, int pos, char piece) {
+    switch (piece) {
+        case 'P':
+            return hash ^ (zobrist_map[pos][0]);
+        case 'p':
+            return hash ^ (zobrist_map[pos][1]);
+        case 'R':
+            return hash ^ (zobrist_map[pos][2]);
+        case 'r':
+            return hash ^ (zobrist_map[pos][3]);
+        case 'N':
+            return hash ^ (zobrist_map[pos][4]);
+        case 'n':
+            return hash ^ (zobrist_map[pos][5]);
+        case 'B':
+            return hash ^ (zobrist_map[pos][6]);
+        case 'b':
+            return hash ^ (zobrist_map[pos][7]);
+        case 'Q':
+            return hash ^ (zobrist_map[pos][8]);
+        case 'q':
+            return hash ^ (zobrist_map[pos][9]);
+        case 'K':
+            return hash ^ (zobrist_map[pos][10]);
+        default:
+            return hash ^ (zobrist_map[pos][11]);
+    }
+}
+
+static long int update_hash_before_play(long int hash, const board_t * board, const play_t * play, int depth) {
+    int from_x = play->from_x;
+    int from_y = play->from_y;
+    int to_x = play->to_x;
+    int to_y = play->to_y;
+    int en_passant_x = board->en_passant_x;
+
+    char piece = board->b[from_y * 8 + from_x];
+    hash = update_hash_with_piece(hash, from_y * 8 + from_x, piece);
+    if (board->b[to_y * 8 + to_x] != ' ') {
+        hash = update_hash_with_piece(hash, to_y * 8 + to_x, board->b[to_y * 8 + to_x]);
+    }
+
+    if (en_passant_x != NO_EN_PASSANT) {
+        hash ^= zobrist_en_passant[en_passant_x];
+
+        if (piece == 'P' && from_y == 3 && to_x == en_passant_x) {
+            hash = update_hash_with_piece(hash, from_y * 8 + en_passant_x, 'p');
+        } else if (piece == 'p' && from_y == 4 && to_x == en_passant_x) {
+            hash = update_hash_with_piece(hash, from_y * 8 + en_passant_x, 'P');
+        }
+    }
+
+    if (from_x == 4) {
+        if (piece == 'K') {
+            if (to_x == 6) {
+                hash = update_hash_with_piece(hash, 7 * 8 + 7, 'R');
+                hash = update_hash_with_piece(hash, 7 * 8 + 5, 'R');
+                hash ^= zobrist_castling[0];
+                if (board->white_left_castling) {
+                    hash ^= zobrist_castling[1];
+                }
+            } else if (to_x == 2) {
+                hash = update_hash_with_piece(hash, 7 * 8 + 0, 'R');
+                hash = update_hash_with_piece(hash, 7 * 8 + 3, 'R');
+                hash ^= zobrist_castling[1];
+                if (board->white_right_castling) {
+                    hash ^= zobrist_castling[0];
+                }
+            }
+        } else if (piece == 'k') {
+            if (to_x == 6) {
+                hash = update_hash_with_piece(hash, 0 * 8 + 7, 'r');
+                hash = update_hash_with_piece(hash, 0 * 8 + 5, 'r');
+                hash ^= zobrist_castling[2];
+                if (board->black_left_castling) {
+                    hash ^= zobrist_castling[3];
+                }
+            } else if (to_x == 2) {
+                hash = update_hash_with_piece(hash, 0 * 8 + 0, 'r');
+                hash = update_hash_with_piece(hash, 0 * 8 + 3, 'r');
+                hash ^= zobrist_castling[3];
+                if (board->black_right_castling) {
+                    hash ^= zobrist_castling[2];
+                }
+            }
+        }
+    }
+
+    hash ^= zobrist_depth[depth];
+
+    return hash;
+}
+
+static long int update_hash_after_play(long int hash, const board_t * board, const play_t * play, int depth) {
+    int to_x = play->to_x;
+    int to_y = play->to_y;
+    int en_passant_x = board->en_passant_x;
+
+    hash = update_hash_with_piece(hash, to_y * 8 + to_x, board->b[to_y * 8 + to_x]);
+
+    if (en_passant_x != NO_EN_PASSANT) {
+        hash ^= zobrist_en_passant[en_passant_x];
+    }
+
+    hash ^= zobrist_depth[depth];
+
+    return hash;
+}
+
+static long int hash_from_board(const board_t * board, int depth) {
+    long int hash = 0xAAAAAAAAAAAAAAAA;
+
+    for (int p = 0; p < 64; ++p) {
+        char piece = board->b[p];
+        if (piece != ' ') {
+            hash = update_hash_with_piece(hash, p, piece);
+        }
+    }
+
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        hash ^= zobrist_en_passant[(int)(board->en_passant_x)];
+    }
+
+    if (board->white_right_castling) {
+        hash ^= zobrist_castling[0];
+    }
+    if (board->white_left_castling) {
+        hash ^= zobrist_castling[1];
+    }
+    if (board->black_right_castling) {
+        hash ^= zobrist_castling[2];
+    }
+    if (board->black_left_castling) {
+        hash ^= zobrist_castling[3];
+    }
+
+    hash ^= zobrist_depth[depth];
+
+    return hash;
+}
 
 static int determine_color(char c) {
     if (c == ' ') {
@@ -42,52 +233,6 @@ static int determine_color(char c) {
     }
     return c > 'a' ? BLACK_COLOR : WHITE_COLOR;
 }
-
-// maximum output string length seen: 53
-static void board_to_hash_string(char * str, const board_t * board, int depth) {
-    int idx = 0;
-    int blank = 0;
-
-    for (int p = 0; p < 64; ++p) {
-        if (board->b[p] == ' ') {
-            blank++;
-        } else {
-            if (blank > 0) {
-                str[idx++] = ' ' + blank;
-                blank = 0;
-            }
-            str[idx++] = board->b[p];
-        }
-    }
-
-    if (blank > 0) {
-        str[idx++] = ' ' + blank;
-    }
-
-    int castling = board->color == WHITE_COLOR ? 1 : 0;
-    if (board->white_left_castling) {
-        castling = (castling << 1) | 1;
-    }
-    if (board->white_right_castling) {
-        castling = (castling << 1) | 1;
-    }
-    if (board->black_left_castling) {
-        castling = (castling << 1) | 1;
-    }
-    if (board->black_right_castling) {
-        castling = (castling << 1) | 1;
-    }
-
-    str[idx++] = ' ' + castling;
-
-    if (board->en_passant_x != NO_EN_PASSANT) {
-        str[idx++] = 'a' + board->en_passant_x;
-    }
-    str[idx++] = '0' + depth;
-
-    str[idx] = 0;
-}
-
 
 static void print_board(board_t * board) {
     board_to_fen(input_buffer, board);
@@ -259,7 +404,6 @@ static int just_play(board_t * board, const play_t * play, int score) {
         board->b[to_y * 8 + to_x] = board->b[from_y * 8 + from_x];
     }
     board->b[from_y * 8 + from_x] = ' ';
-
     board->color = opposite_color(board->color);
 
     return score;
@@ -1051,9 +1195,9 @@ static int king_threatened(board_t * board) {
     return 0;
 }
 
-static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score) {
+static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score, long int hash) {
     if (board->halfmoves == 50) {
-        return board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
+        return board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
     }
 
     int alpha_orig = alpha;
@@ -1064,15 +1208,16 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         item.key = resuable_alloc;
         resuable_alloc = NULL;
     } else {
-        item.key = malloc(56);
+        item.key = malloc(17);
     }
-    board_to_hash_string(item.key, board, depth);
+    sprintf(item.key, "%lX", hash);
 
     ENTRY * found = hsearch(item, FIND);
     if (found) {
         resuable_alloc = item.key;
 
         saved_score_t * ss = (saved_score_t *)found->data;
+
         if (ss->type == TYPE_EXACT) {
             return ss->score;
         } else if (ss->type == TYPE_LOWER_BOUND && ss->score > alpha) {
@@ -1086,7 +1231,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         }
     }
 
-    if (depth == 0) {
+    if (depth == MAX_DEPTH) {
         if (found == NULL) {
             saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
             ss->score = initial_score;
@@ -1105,7 +1250,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     int valid_plays_i = enumerate_legal_plays(valid_plays, board);
     if (valid_plays_i == 0) {
         if (king_threatened(board)) {
-            int score = board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
+            int score = board->color != WHITE_COLOR ? 20000000 - depth * 128 : -20000000 + depth * 128;
 
             if (found == NULL) {
                 saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
@@ -1117,7 +1262,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
 
             return score;
         } else {
-            int score = board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
+            int score = board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
 
             if (found == NULL) {
                 saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
@@ -1135,11 +1280,14 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
+        long int this_hash = update_hash_before_play(hash, board, &valid_plays[i], depth);
 
         int score = just_play(&board_cpy, &valid_plays[i], initial_score);
         int score_extra = board->color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
-        score = minimax(&board_cpy, depth - 1, alpha, beta, score + score_extra);
+        this_hash = update_hash_after_play(this_hash, &board_cpy, &valid_plays[i], depth + 1);
+
+        score = minimax(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
         if (score != NO_SCORE) {
             if (board->color == WHITE_COLOR) {
@@ -1203,6 +1351,7 @@ static int ai_play(play_t * play) {
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
+
         int score = just_play(&board_cpy, &valid_plays[i], 0);
         int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
@@ -1220,7 +1369,7 @@ static int ai_play(play_t * play) {
         if (position_repeated == 2) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
-            score = minimax(&board_cpy, 5, alpha, beta, score + score_extra);
+            score = minimax(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy, 0));
         }
 
         if (score != NO_SCORE) {
@@ -1246,7 +1395,9 @@ static int ai_play(play_t * play) {
         }
     }
 
-    printf("[pool0=%d, leafs=%d]\n", saved_scores_pool_idx, leafs_explored);
+    max_saved_scores_pool_idx = MAX(max_saved_scores_pool_idx, saved_scores_pool_idx);
+    max_leafs_explored = MAX(max_leafs_explored, leafs_explored);
+    printf("[hash=%d|%d, leafs=%d|%d]\n", saved_scores_pool_idx, max_saved_scores_pool_idx, leafs_explored, max_leafs_explored);
     hdestroy();
     saved_scores_pool_idx = 0;
 
@@ -1565,6 +1716,7 @@ static void show_help() {
 }
 
 int main(int argc, char * argv[]) {
+    populate_zobrist_masks();
     saved_scores_pool = malloc(5000000 * sizeof(saved_score_t));
     reset_board();
 
@@ -1585,6 +1737,8 @@ int main(int argc, char * argv[]) {
             show_help();
             return 0;
         }
+        printf("Unrecognized argument \"%s\"\n", argv[i]);
+        return 1;
     }
 
     uci_mode();
