@@ -15,6 +15,8 @@ static board_t board;
 static char last_play_x = -1;
 static char last_play_y = -1;
 
+static char * resuable_alloc = NULL;
+
 #define PIECE_SCORE_MULTIPLIER 256
 #define NO_SCORE 2147483647
 #define CHECK_MATE 2147483646
@@ -1058,11 +1060,18 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     int beta_orig = beta;
 
     ENTRY item;
-    item.key = malloc(56);
+    if (resuable_alloc) {
+        item.key = resuable_alloc;
+        resuable_alloc = NULL;
+    } else {
+        item.key = malloc(56);
+    }
     board_to_hash_string(item.key, board, depth);
 
     ENTRY * found = hsearch(item, FIND);
     if (found) {
+        resuable_alloc = item.key;
+
         saved_score_t * ss = (saved_score_t *)found->data;
         if (ss->type == TYPE_EXACT) {
             return ss->score;
@@ -1078,11 +1087,13 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     }
 
     if (depth == 0) {
-        saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
-        ss->score = initial_score;
-        ss->type = TYPE_EXACT;
-        item.data = ss;
-        hsearch(item, ENTER);
+        if (found == NULL) {
+            saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+            ss->score = initial_score;
+            ss->type = TYPE_EXACT;
+            item.data = ss;
+            hsearch(item, ENTER);
+        }
 
         leafs_explored++;
         return initial_score;
@@ -1096,21 +1107,25 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         if (king_threatened(board)) {
             int score = board->color != WHITE_COLOR ? 20000000 + depth * 128 : -20000000 - depth * 128;
 
-            saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
-            ss->score = score;
-            ss->type = TYPE_EXACT;
-            item.data = ss;
-            hsearch(item, ENTER);
+            if (found == NULL) {
+                saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+                ss->score = score;
+                ss->type = TYPE_EXACT;
+                item.data = ss;
+                hsearch(item, ENTER);
+            }
 
             return score;
         } else {
             int score = board->color != WHITE_COLOR ? 10000000 - depth * 128 : -10000000 + depth * 128;
 
-            saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
-            ss->score = score;
-            ss->type = TYPE_EXACT;
-            item.data = ss;
-            hsearch(item, ENTER);
+            if (found == NULL) {
+                saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+                ss->score = score;
+                ss->type = TYPE_EXACT;
+                item.data = ss;
+                hsearch(item, ENTER);
+            }
 
             return score;
         }
@@ -1148,18 +1163,20 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         }
     }
 
-    saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
-    ss->score = best_score;
-    if (best_score <= alpha_orig) {
-        ss->type = TYPE_UPPER_BOUND;
-    } else if (best_score >= beta_orig) {
-        ss->type = TYPE_LOWER_BOUND;
-    } else {
-        ss->type = TYPE_EXACT;
-    }
+    if (found == NULL) {
+        saved_score_t * ss = &saved_scores_pool[saved_scores_pool_idx++];
+        ss->score = best_score;
+        if (best_score <= alpha_orig) {
+            ss->type = TYPE_UPPER_BOUND;
+        } else if (best_score >= beta_orig) {
+            ss->type = TYPE_LOWER_BOUND;
+        } else {
+            ss->type = TYPE_EXACT;
+        }
 
-    item.data = ss;
-    hsearch(item, ENTER);
+        item.data = ss;
+        hsearch(item, ENTER);
+    }
 
     return best_score;
 }
