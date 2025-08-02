@@ -27,6 +27,13 @@ typedef struct {
     char promotion_option;
 } play_t;
 
+typedef struct {
+    long int hash;
+    int score_w_type;
+} hash_table_entry_t;
+
+#define HASH_TABLE_SIZE 8388608
+
 #define TYPE_EXACT 1
 #define TYPE_UPPER_BOUND 2
 #define TYPE_LOWER_BOUND 3

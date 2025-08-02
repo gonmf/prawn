@@ -1,10 +1,7 @@
 // TODO:
-// implement correctly castling (no threats to path of king)
-// add move quiescence
-// more efficient hash table
+// move quiescence
 
 #include "common.h"
-#include <search.h>
 
 static char input_buffer[1024];
 
@@ -13,8 +10,6 @@ static unsigned char past_plays_count;
 static board_t board;
 static char last_play_x = -1;
 static char last_play_y = -1;
-
-static char * reuable_alloc = NULL;
 
 #define PIECE_SCORE_MULTIPLIER 256
 #define NO_SCORE -536870912
@@ -31,15 +26,45 @@ static char * reuable_alloc = NULL;
     valid_plays[valid_plays_i].to_y = (TO_Y); \
     valid_plays_i = valid_plays_i + 1;
 
-static int hash_entries = 0;
-static int max_hash_entries = 0;
-static int leafs_explored = 0;
-static int max_leafs_explored = 0;
-
 static long int zobrist_map[64][12];
 static long int zobrist_depth[MAX_DEPTH + 1];
 static long int zobrist_en_passant[8];
 static long int zobrist_castling[4];
+
+static hash_table_entry_t * hash_table;
+
+// We tell if the entry is filled in by the 2 lowest bits of the score_w_type present, that must be zero
+static int hash_table_find(int * score_w_type, long int hash) {
+    int start_key = hash & (HASH_TABLE_SIZE - 1);
+    int i = 0;
+
+    while (i < 100) {
+        int key = (start_key + i) & (HASH_TABLE_SIZE - 1);
+        if (hash_table[key].hash == hash) {
+            *score_w_type = hash_table[key].score_w_type;
+            return 1;
+        }
+
+        ++i;
+    }
+    return 0;
+}
+
+static void hash_table_insert(long int hash, int score_w_type) {
+    int start_key = hash & (HASH_TABLE_SIZE - 1);
+    int i = 0;
+
+    while (i < 100) {
+        int key = (start_key + i) & (HASH_TABLE_SIZE - 1);
+        if ((hash_table[key].score_w_type & 3) == 0) {
+            hash_table[key].hash = hash;
+            hash_table[key].score_w_type = score_w_type;
+            return;
+        }
+
+        ++i;
+    }
+}
 
 static long int generate_mask() {
     long int candidate = (((long int)rand()) <<  0) ^
@@ -1148,6 +1173,40 @@ static int enumerate_legal_plays(play_t * valid_plays, board_t * board) {
             }
         }
         if (play_is_valid) {
+            int from_x = valid_plays_local[i].from_x;
+            int from_y = valid_plays_local[i].from_y;
+            int to_x = valid_plays_local[i].to_x;
+            char piece = board->b[from_y * 8 + from_x];
+            if (piece == king_piece && from_x == 4) {
+                if (to_x == 6) {
+                    for (int j = 0; j < cpy_valid_plays_i; ++j) {
+                        char x = cpy_valid_plays[j].to_x;
+                        char y = cpy_valid_plays[j].to_y;
+
+                        if (x == 5 && y == from_y) {
+                            play_is_valid = 0;
+                            break;
+                        }
+                    }
+                    if (!play_is_valid) {
+                        continue;
+                    }
+                } else if (to_x == 2) {
+                    for (int j = 0; j < cpy_valid_plays_i; ++j) {
+                        char x = cpy_valid_plays[j].to_x;
+                        char y = cpy_valid_plays[j].to_y;
+
+                        if (x == 3 && y == from_y) {
+                            play_is_valid = 0;
+                            break;
+                        }
+                    }
+                    if (!play_is_valid) {
+                        continue;
+                    }
+                }
+            }
+
             valid_plays[valid_plays_i] = valid_plays_local[i];
             valid_plays_i++;
         }
@@ -1202,22 +1261,11 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     int alpha_orig = alpha;
     int beta_orig = beta;
 
-    ENTRY item;
-    if (reuable_alloc) {
-        item.key = reuable_alloc;
-        reuable_alloc = NULL;
-    } else {
-        item.key = malloc(17);
-    }
-    sprintf(item.key, "%lX", hash);
-
-    ENTRY * found = hsearch(item, FIND);
+    int score_w_type;
+    int found = hash_table_find(&score_w_type, hash);
     if (found) {
-        reuable_alloc = item.key;
-
-        int score_with_type = (int)(long int)(found->data);
-        int score = score_with_type >> 2;
-        int type = score_with_type & 3;
+        int score = score_w_type >> 2;
+        int type = score_w_type & 3;
 
         if (type == TYPE_EXACT) {
             return score;
@@ -1233,14 +1281,11 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     }
 
     if (depth == MAX_DEPTH) {
-        if (found == NULL) {
-            int score_with_type = (initial_score << 2) | TYPE_EXACT;
-            item.data = (void *)(long int)score_with_type;
-            hsearch(item, ENTER);
-            hash_entries++;
+        if (!found) {
+            int score_w_type = (initial_score << 2) | TYPE_EXACT;
+            hash_table_insert(hash, score_w_type);
         }
 
-        leafs_explored++;
         return initial_score;
     }
 
@@ -1252,22 +1297,18 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         if (king_threatened(board)) {
             int score = board->color != WHITE_COLOR ? 20000000 - depth * 128 : -20000000 + depth * 128;
 
-            if (found == NULL) {
-                int score_with_type = (score << 2) | TYPE_EXACT;
-                item.data = (void *)(long int)score_with_type;
-                hsearch(item, ENTER);
-                hash_entries++;
+            if (!found) {
+                int score_w_type = (score << 2) | TYPE_EXACT;
+                hash_table_insert(hash, score_w_type);
             }
 
             return score;
         } else {
             int score = board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
 
-            if (found == NULL) {
-                int score_with_type = (score << 2) | TYPE_EXACT;
-                item.data = (void *)(long int)score_with_type;
-                hsearch(item, ENTER);
-                hash_entries++;
+            if (!found) {
+                int score_w_type = (score << 2) | TYPE_EXACT;
+                hash_table_insert(hash, score_w_type);
             }
 
             return score;
@@ -1305,11 +1346,10 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
                 }
                 beta = MIN(beta, score);
             }
-
         }
     }
 
-    if (found == NULL) {
+    if (!found) {
         int type;
         if (best_score <= alpha_orig) {
             type = TYPE_UPPER_BOUND;
@@ -1319,16 +1359,14 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
             type = TYPE_EXACT;
         }
 
-        int score_with_type = (best_score << 2) | type;
-        item.data = (void *)(long int)score_with_type;
-        hsearch(item, ENTER);
-        hash_entries++;
+        int score_w_type = (best_score << 2) | type;
+        hash_table_insert(hash, score_w_type);
     }
 
     return best_score;
 }
 
-static int ai_play(play_t * play, FILE * fd) {
+static int ai_play(play_t * play) {
     board_t board_cpy;
     play_t valid_plays[128];
     int alpha = -2147483644;
@@ -1345,7 +1383,7 @@ static int ai_play(play_t * play, FILE * fd) {
 
     int best_score = NO_SCORE;
     int best_play = 0;
-    hcreate(6000000);
+    bzero(hash_table, HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
@@ -1392,18 +1430,6 @@ static int ai_play(play_t * play, FILE * fd) {
             }
         }
     }
-
-    max_hash_entries = MAX(max_hash_entries, hash_entries);
-    max_leafs_explored = MAX(max_leafs_explored, leafs_explored);
-    if (fd == NULL) {
-        printf("[hasht=%d (%d), leafs=%d (%d)]\n", hash_entries, max_hash_entries, leafs_explored, max_leafs_explored);
-    } else {
-        fprintf(fd, "[hasht=%d (%d), leafs=%d (%d)]\n", hash_entries, max_hash_entries, leafs_explored, max_leafs_explored);
-        fflush(fd);
-    }
-    hdestroy();
-    hash_entries = 0;
-    leafs_explored = 0;
 
     if (best_score == NO_SCORE) {
         if (king_threatened(&board)) {
@@ -1572,7 +1598,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
             actual_play(&play);
         } else {
             play_t play;
-            int played = ai_play(&play, NULL);
+            int played = ai_play(&play);
 
             if (played == CHECK_MATE) {
                 printf("Player lost.\n");
@@ -1680,7 +1706,7 @@ static void uci_mode() {
         }
         if (strncmp(input_buffer, "go ", strlen("go ")) == 0) {
             play_t play;
-            int played = ai_play(&play, fd);
+            int played = ai_play(&play);
             if (played == CHECK_MATE) {
                 fprintf(fd, "# Player lost.\n");
                 fflush(fd);
@@ -1721,7 +1747,7 @@ static void show_help() {
 
 int main(int argc, char * argv[]) {
     populate_zobrist_masks();
-    // saved_scores_pool = malloc(5000000 * sizeof(saved_score_t));
+    hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
     reset_board();
 
     for (int i = 1; i < argc; ++i) {
