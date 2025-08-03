@@ -1666,7 +1666,8 @@ static void uci_mode() {
             break;
         }
         if (strcmp(input_buffer, "uci") == 0) {
-            send_uci_command(fd, "id name prawn 1.0");
+            sprintf(input_buffer, "id name prawn %s", PROGRAM_VERSION);
+            send_uci_command(fd, input_buffer);
             send_uci_command(fd, "id author gonmf");
             send_uci_command(fd, "uciok");
             continue;
@@ -1704,7 +1705,7 @@ static void uci_mode() {
             }
             continue;
         }
-        if (strncmp(input_buffer, "go ", strlen("go ")) == 0) {
+        if (strcmp(input_buffer, "go") == 0 || strncmp(input_buffer, "go ", strlen("go ")) == 0) {
             play_t play;
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
