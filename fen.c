@@ -1,196 +1,195 @@
 #include "common.h"
 
 void fen_to_board(board_t * board, const char * fen_str) {
-  for (int y = 0; y < 8; ++y) {
-    for (int x = 0; x < 8; ++x) {
-      board->b[y * 8 + x] = ' ';
-    }
-  }
-
-  int fen_str_i = 0;
-
-  for (int y = 0; y < 8; ++y) {
-    for (int x = 0; x < 8; ++x) {
-      if (fen_str[fen_str_i] >= '1' && fen_str[fen_str_i] <= '8') {
-        x += fen_str[fen_str_i] - '1';
-      } else {
-        board->b[y * 8 + x] = fen_str[fen_str_i];
-      }
-      fen_str_i++;
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            board->b[y * 8 + x] = ' ';
+        }
     }
 
-    fen_str_i++;
-  }
+    int fen_str_i = 0;
 
-  if (fen_str[fen_str_i] == 'w') {
-      board->color = WHITE_COLOR;
-  } else {
-      board->color = BLACK_COLOR;
-  }
+    for (int y = 0; y < 8; ++y) {
+        for (int x = 0; x < 8; ++x) {
+            if (fen_str[fen_str_i] >= '1' && fen_str[fen_str_i] <= '8') {
+                x += fen_str[fen_str_i] - '1';
+            } else {
+                board->b[y * 8 + x] = fen_str[fen_str_i];
+            }
+            fen_str_i++;
+        }
 
-  fen_str_i += 2;
+       fen_str_i++;
+    }
 
-  board->white_left_castling = 0;
-  board->white_right_castling = 0;
-  board->black_left_castling = 0;
-  board->black_right_castling = 0;
+    if (fen_str[fen_str_i] == 'w') {
+        board->color = WHITE_COLOR;
+    } else {
+        board->color = BLACK_COLOR;
+    }
 
-  if (fen_str[fen_str_i] == 'K') {
-    board->white_right_castling = 1;
-    fen_str_i++;
-  }
-  if (fen_str[fen_str_i] == 'Q') {
-    board->white_left_castling = 1;
-    fen_str_i++;
-  }
-  if (fen_str[fen_str_i] == 'k') {
-    board->black_right_castling = 1;
-    fen_str_i++;
-  }
-  if (fen_str[fen_str_i] == 'q') {
-    board->black_left_castling = 1;
-  }
-
-  fen_str_i += 2;
-
-  if (fen_str[fen_str_i] == '-') {
-    board->en_passant_x = NO_EN_PASSANT;
     fen_str_i += 2;
-  } else {
-    board->en_passant_x = fen_str[fen_str_i] - 'a';
-    fen_str_i += 3;
-  }
 
-  board->halfmoves = 0;
-  while (fen_str[fen_str_i] >= '0' && fen_str[fen_str_i] <= '9') {
-    board->halfmoves = board->halfmoves * 10 + (fen_str[fen_str_i] - '0');
+    board->white_left_castling = 0;
+    board->white_right_castling = 0;
+    board->black_left_castling = 0;
+    board->black_right_castling = 0;
+
+    if (fen_str[fen_str_i] == 'K') {
+        board->white_right_castling = 1;
+        fen_str_i++;
+    }
+    if (fen_str[fen_str_i] == 'Q') {
+        board->white_left_castling = 1;
+        fen_str_i++;
+    }
+    if (fen_str[fen_str_i] == 'k') {
+        board->black_right_castling = 1;
+        fen_str_i++;
+    }
+    if (fen_str[fen_str_i] == 'q') {
+        board->black_left_castling = 1;
+    }
+
+    fen_str_i += 2;
+
+    if (fen_str[fen_str_i] == '-') {
+        board->en_passant_x = NO_EN_PASSANT;
+        fen_str_i += 2;
+    } else {
+        board->en_passant_x = fen_str[fen_str_i] - 'a';
+        fen_str_i += 3;
+    }
+
+    board->halfmoves = 0;
+    while (fen_str[fen_str_i] >= '0' && fen_str[fen_str_i] <= '9') {
+        board->halfmoves = board->halfmoves * 10 + (fen_str[fen_str_i] - '0');
+        fen_str_i++;
+    }
+
     fen_str_i++;
-  }
 
-  fen_str_i++;
-
-  board->fullmoves = 0;
-  while (fen_str[fen_str_i] >= '0' && fen_str[fen_str_i] <= '9') {
-    board->fullmoves = board->fullmoves * 10 + (fen_str[fen_str_i] - '0');
-    fen_str_i++;
-  }
+    board->fullmoves = 0;
+    while (fen_str[fen_str_i] >= '0' && fen_str[fen_str_i] <= '9') {
+        board->fullmoves = board->fullmoves * 10 + (fen_str[fen_str_i] - '0');
+        fen_str_i++;
+    }
 }
 
 void board_to_fen(char * fen_str, const board_t * board) {
-  int fen_str_i = 0;
+    int fen_str_i = 0;
 
-  for (int y = 0; y < 8; ++y) {
+    for (int y = 0; y < 8; ++y) {
+        int blank = 0;
+
+        for (int x = 0; x < 8; ++x) {
+            if (board->b[y * 8 + x] == ' ') {
+                blank++;
+            } else {
+                if (blank > 0) {
+                    fen_str[fen_str_i++] = '0' + blank;
+                    blank = 0;
+                }
+                fen_str[fen_str_i++] = board->b[y * 8 + x];
+            }
+        }
+
+        if (blank > 0) {
+            fen_str[fen_str_i++] = '0' + blank;
+        }
+
+        if (y < 7) {
+            fen_str[fen_str_i++] = '/';
+        }
+    }
+
+    fen_str[fen_str_i++] = ' ';
+    fen_str[fen_str_i++] = board->color == WHITE_COLOR ? 'w' : 'b';
+    fen_str[fen_str_i++] = ' ';
+
+    int any_can_castle = 0;
+    if (board->white_right_castling) {
+        fen_str[fen_str_i++] = 'K';
+        any_can_castle = 1;
+    }
+    if (board->white_left_castling) {
+        fen_str[fen_str_i++] = 'Q';
+        any_can_castle = 1;
+    }
+    if (board->black_right_castling) {
+        fen_str[fen_str_i++] = 'k';
+        any_can_castle = 1;
+    }
+    if (board->black_left_castling) {
+        fen_str[fen_str_i++] = 'q';
+        any_can_castle = 1;
+    }
+    if (!any_can_castle) {
+        fen_str[fen_str_i++] = '-';
+    }
+
+    fen_str[fen_str_i++] = ' ';
+
+    if (board->en_passant_x == NO_EN_PASSANT) {
+        fen_str[fen_str_i++] = '-';
+    } else {
+        fen_str[fen_str_i++] = 'a' + board->en_passant_x;
+        if (board->color == WHITE_COLOR) {
+            fen_str[fen_str_i++] = '6';
+        } else {
+            fen_str[fen_str_i++] = '3';
+        }
+    }
+
+    fen_str[fen_str_i++] = ' ';
+
+    fen_str_i += sprintf(fen_str + fen_str_i, "%d", board->halfmoves);
+
+    fen_str[fen_str_i++] = ' ';
+
+    fen_str_i += sprintf(fen_str + fen_str_i, "%d", board->fullmoves);
+}
+
+// maximum output string length seen: 52
+void board_to_short_string(char * str, const board_t * board) {
+    int idx = 0;
     int blank = 0;
 
-    for (int x = 0; x < 8; ++x) {
-      if (board->b[y * 8 + x] == ' ') {
-        blank++;
-      } else {
-        if (blank > 0) {
-          fen_str[fen_str_i++] = '0' + blank;
-          blank = 0;
+    for (int p = 0; p < 64; ++p) {
+        if (board->b[p] == ' ') {
+            blank++;
+        } else {
+            if (blank > 0) {
+                str[idx++] = ' ' + blank;
+                blank = 0;
+            }
+            str[idx++] = board->b[p];
         }
-        fen_str[fen_str_i++] = board->b[y * 8 + x];
-      }
     }
 
     if (blank > 0) {
-      fen_str[fen_str_i++] = '0' + blank;
+        str[idx++] = ' ' + blank;
     }
 
-    if (y < 7) {
-      fen_str[fen_str_i++] = '/';
+    int castling = board->color == WHITE_COLOR ? 1 : 0;
+    if (board->white_left_castling) {
+        castling = (castling << 1) | 1;
     }
-  }
-
-  fen_str[fen_str_i++] = ' ';
-  fen_str[fen_str_i++] = board->color == WHITE_COLOR ? 'w' : 'b';
-  fen_str[fen_str_i++] = ' ';
-
-  int any_can_castle = 0;
-  if (board->white_right_castling) {
-    fen_str[fen_str_i++] = 'K';
-    any_can_castle = 1;
-  }
-  if (board->white_left_castling) {
-    fen_str[fen_str_i++] = 'Q';
-    any_can_castle = 1;
-  }
-  if (board->black_right_castling) {
-    fen_str[fen_str_i++] = 'k';
-    any_can_castle = 1;
-  }
-  if (board->black_left_castling) {
-    fen_str[fen_str_i++] = 'q';
-    any_can_castle = 1;
-  }
-  if (!any_can_castle) {
-    fen_str[fen_str_i++] = '-';
-  }
-
-  fen_str[fen_str_i++] = ' ';
-
-  if (board->en_passant_x == NO_EN_PASSANT) {
-    fen_str[fen_str_i++] = '-';
-  } else {
-    fen_str[fen_str_i++] = 'a' + board->en_passant_x;
-    if (board->color == WHITE_COLOR) {
-      fen_str[fen_str_i++] = '6';
-    } else {
-      fen_str[fen_str_i++] = '3';
+    if (board->white_right_castling) {
+        castling = (castling << 1) | 1;
     }
-  }
-
-  fen_str[fen_str_i++] = ' ';
-
-  fen_str_i += sprintf(fen_str + fen_str_i, "%d", board->halfmoves);
-
-  fen_str[fen_str_i++] = ' ';
-
-  fen_str_i += sprintf(fen_str + fen_str_i, "%d", board->fullmoves);
-}
-
-void board_to_short_string(char * str, const board_t * board) {
-  int idx = 0;
-  int blank = 0;
-
-  for (int y = 0; y < 8; ++y) {
-    for (int x = 0; x < 8; ++x) {
-      if (board->b[y * 8 + x] == ' ') {
-        blank++;
-      } else {
-        if (blank > 0) {
-          str[idx++] = ' ' + blank;
-          blank = 0;
-        }
-        str[idx++] = board->b[y * 8 + x];
-      }
+    if (board->black_left_castling) {
+        castling = (castling << 1) | 1;
     }
-  }
+    if (board->black_right_castling) {
+        castling = (castling << 1) | 1;
+    }
 
-  if (blank > 0) {
-    str[idx++] = ' ' + blank;
-  }
+    str[idx++] = ' ' + castling;
 
-  int castling = board->color == WHITE_COLOR ? 1 : 0;
-  if (board->white_left_castling) {
-    castling = (castling << 1) | 1;
-  }
-  if (board->white_right_castling) {
-    castling = (castling << 1) | 1;
-  }
-  if (board->black_left_castling) {
-    castling = (castling << 1) | 1;
-  }
-  if (board->black_right_castling) {
-    castling = (castling << 1) | 1;
-  }
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        str[idx++] = 'a' + board->en_passant_x;
+    }
 
-  str[idx++] = ' ' + castling;
-
-  if (board->en_passant_x != NO_EN_PASSANT) {
-    str[idx++] = 'a' + board->en_passant_x;
-  }
-
-  str[idx] = 0;
+    str[idx] = 0;
 }

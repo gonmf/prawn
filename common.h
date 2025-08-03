@@ -27,6 +27,17 @@ typedef struct {
     char promotion_option;
 } play_t;
 
+typedef struct {
+    long int hash;
+    int score_w_type;
+} hash_table_entry_t;
+
+#define HASH_TABLE_SIZE 8388608
+
+#define TYPE_EXACT 1
+#define TYPE_UPPER_BOUND 2
+#define TYPE_LOWER_BOUND 3
+
 #define WHITE_COLOR 1
 #define BLACK_COLOR 2
 #define NO_COLOR 3
@@ -37,6 +48,8 @@ typedef struct {
 #define PROMOTION_KNIGHT 2
 #define PROMOTION_BISHOP 3
 #define PROMOTION_ROOK 4
+
+#define MAX_DEPTH 5
 
 void fen_to_board(board_t * board, const char * fen_str);
 void board_to_fen(char * fen_str, const board_t * board);
