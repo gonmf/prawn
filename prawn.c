@@ -26,8 +26,9 @@ static char last_play_y = -1;
     valid_plays[valid_plays_i].to_y = (TO_Y); \
     valid_plays_i = valid_plays_i + 1;
 
+#if ENABLE_TRANSPOTION_DETECTION
 static long int zobrist_map[64][12];
-static long int zobrist_depth[MAX_DEPTH + 1];
+static long int zobrist_depth[MAX_SEARCH_DEPTH + 1];
 static long int zobrist_en_passant[8];
 static long int zobrist_castling[4];
 
@@ -80,7 +81,7 @@ static long int generate_mask() {
             }
         }
     }
-    for (int t = 0; t < MAX_DEPTH + 1; ++t) {
+    for (int t = 0; t < MAX_SEARCH_DEPTH + 1; ++t) {
         if (zobrist_depth[t] == candidate) {
             return generate_mask();
         }
@@ -101,7 +102,7 @@ static void populate_zobrist_masks() {
         }
     }
 
-    for (int t = 0; t < MAX_DEPTH + 1; ++t) {
+    for (int t = 0; t < MAX_SEARCH_DEPTH + 1; ++t) {
         zobrist_depth[t] = generate_mask();
     }
 
@@ -250,6 +251,7 @@ static long int hash_from_board(const board_t * board, int depth) {
 
     return hash;
 }
+#endif
 
 static int determine_color(char c) {
     if (c == ' ') {
@@ -258,7 +260,7 @@ static int determine_color(char c) {
     return c > 'a' ? BLACK_COLOR : WHITE_COLOR;
 }
 
-static void print_board(board_t * board) {
+static void print_board(const board_t * board) {
     board_to_fen(input_buffer, board);
     printf("%s\n", input_buffer);
     printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
@@ -452,7 +454,7 @@ static void actual_play(const play_t * play) {
     just_play(&board, play, 0);
 }
 
-static int enumerate_all_possible_plays_white(play_t * valid_plays, board_t * board) {
+static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
 
     for (int y = 0; y < 8; y++) {
@@ -701,7 +703,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, board_t * bo
     return valid_plays_i;
 }
 
-static int enumerate_all_possible_plays_black(play_t * valid_plays, board_t * board) {
+static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
 
     for (int y = 7; y >= 0; y--) {
@@ -950,7 +952,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, board_t * bo
     return valid_plays_i;
 }
 
-static int enumerate_possible_capture_plays(play_t * valid_plays, board_t * board) {
+static int enumerate_possible_capture_plays(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
     int opnt_color = opposite_color(board->color);
 
@@ -1147,7 +1149,7 @@ static int enumerate_possible_capture_plays(play_t * valid_plays, board_t * boar
     return valid_plays_i;
 }
 
-static int enumerate_legal_plays(play_t * valid_plays, board_t * board) {
+static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
     play_t valid_plays_local[128];
     int valid_plays_local_i = board->color == WHITE_COLOR ? enumerate_all_possible_plays_white(valid_plays_local, board) : enumerate_all_possible_plays_black(valid_plays_local, board);
@@ -1258,6 +1260,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         return board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
     }
 
+#if ENABLE_TRANSPOTION_DETECTION
     int alpha_orig = alpha;
     int beta_orig = beta;
 
@@ -1279,13 +1282,15 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
             return score;
         }
     }
+#endif
 
-    if (depth == MAX_DEPTH) {
+    if (depth == MAX_SEARCH_DEPTH) {
+#if ENABLE_TRANSPOTION_DETECTION
         if (!found) {
             int score_w_type = (initial_score << 2) | TYPE_EXACT;
             hash_table_insert(hash, score_w_type);
         }
-
+#endif
         return initial_score;
     }
 
@@ -1297,20 +1302,22 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         if (king_threatened(board)) {
             int score = board->color != WHITE_COLOR ? 20000000 - depth * 128 : -20000000 + depth * 128;
 
+#if ENABLE_TRANSPOTION_DETECTION
             if (!found) {
                 int score_w_type = (score << 2) | TYPE_EXACT;
                 hash_table_insert(hash, score_w_type);
             }
-
+#endif
             return score;
         } else {
             int score = board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
 
+#if ENABLE_TRANSPOTION_DETECTION
             if (!found) {
                 int score_w_type = (score << 2) | TYPE_EXACT;
                 hash_table_insert(hash, score_w_type);
             }
-
+#endif
             return score;
         }
     }
@@ -1319,14 +1326,22 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
+#if ENABLE_TRANSPOTION_DETECTION
         long int this_hash = update_hash_before_play(hash, board, &valid_plays[i], depth);
+#endif
 
         int score = just_play(&board_cpy, &valid_plays[i], initial_score);
         int score_extra = board->color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
+#if ENABLE_TRANSPOTION_DETECTION
         this_hash = update_hash_after_play(this_hash, &board_cpy, &valid_plays[i], depth + 1);
+#endif
 
+#if ENABLE_TRANSPOTION_DETECTION
         score = minimax(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
+#else
+        score = minimax(&board_cpy, depth + 1, alpha, beta, score + score_extra, hash);
+#endif
 
         if (score != NO_SCORE) {
             if (board->color == WHITE_COLOR) {
@@ -1349,6 +1364,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         }
     }
 
+#if ENABLE_TRANSPOTION_DETECTION
     if (!found) {
         int type;
         if (best_score <= alpha_orig) {
@@ -1362,6 +1378,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         int score_w_type = (best_score << 2) | type;
         hash_table_insert(hash, score_w_type);
     }
+#endif
 
     return best_score;
 }
@@ -1383,7 +1400,9 @@ static int ai_play(play_t * play) {
 
     int best_score = NO_SCORE;
     int best_play = 0;
+#if ENABLE_TRANSPOTION_DETECTION
     bzero(hash_table, HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
+#endif
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
@@ -1405,7 +1424,11 @@ static int ai_play(play_t * play) {
         if (position_repeated == 2) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
+#if ENABLE_TRANSPOTION_DETECTION
             score = minimax(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy, 0));
+#else
+            score = minimax(&board_cpy, 0, alpha, beta, score + score_extra, 0);
+#endif
         }
 
         if (score != NO_SCORE) {
@@ -1665,6 +1688,9 @@ static void uci_mode() {
         if (feof(fd) || ferror(fd) || strcmp(input_buffer, "quit") == 0) {
             break;
         }
+        if (input_buffer[0] == '#') {
+            continue;
+        }
         if (strcmp(input_buffer, "uci") == 0) {
             sprintf(input_buffer, "id name prawn %s", PROGRAM_VERSION);
             send_uci_command(fd, input_buffer);
@@ -1747,8 +1773,10 @@ static void show_help() {
 }
 
 int main(int argc, char * argv[]) {
+#if ENABLE_TRANSPOTION_DETECTION
     populate_zobrist_masks();
     hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
+#endif
     reset_board();
 
     for (int i = 1; i < argc; ++i) {

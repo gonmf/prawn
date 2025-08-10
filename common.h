@@ -32,6 +32,8 @@ typedef struct {
     int score_w_type;
 } hash_table_entry_t;
 
+#define ENABLE_TRANSPOTION_DETECTION 1
+#define MAX_SEARCH_DEPTH 5
 #define HASH_TABLE_SIZE 8388608
 
 #define TYPE_EXACT 1
@@ -48,8 +50,6 @@ typedef struct {
 #define PROMOTION_KNIGHT 2
 #define PROMOTION_BISHOP 3
 #define PROMOTION_ROOK 4
-
-#define MAX_DEPTH 5
 
 void fen_to_board(board_t * board, const char * fen_str);
 void board_to_fen(char * fen_str, const board_t * board);
