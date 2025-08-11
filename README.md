@@ -1,6 +1,6 @@
 # prawn 🦐
 
-A toy chess playing program using minimax with alpha-beta pruning.
+A toy chess playing program using minimax with alpha-beta pruning and transpositions detection.
 
 It supports self-play and playing versus a human player via text or the UCI protocol.
 
