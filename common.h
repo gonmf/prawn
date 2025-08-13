@@ -28,7 +28,7 @@ typedef struct {
 } play_t;
 
 typedef struct {
-    long int hash;
+    int64_t hash;
     int score_w_type;
 } hash_table_entry_t;
 

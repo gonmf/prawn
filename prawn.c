@@ -3,7 +3,7 @@
 
 #include "common.h"
 
-static char input_buffer[1024];
+static char buffer[1024];
 
 static char past_positions[256][56];
 static unsigned char past_plays_count;
@@ -27,15 +27,15 @@ static char last_play_y = -1;
     valid_plays_i = valid_plays_i + 1;
 
 #if ENABLE_TRANSPOTION_DETECTION
-static long int zobrist_map[64][12];
-static long int zobrist_depth[MAX_SEARCH_DEPTH + 1];
-static long int zobrist_en_passant[8];
-static long int zobrist_castling[4];
+static int64_t zobrist_map[64][12];
+static int64_t zobrist_depth[MAX_SEARCH_DEPTH + 1];
+static int64_t zobrist_en_passant[8];
+static int64_t zobrist_castling[4];
 
 static hash_table_entry_t * hash_table;
 
 // We tell if the entry is filled in by the 2 lowest bits of the score_w_type present, that must be zero
-static int hash_table_find(int * score_w_type, long int hash) {
+static int hash_table_find(int * score_w_type, int64_t hash) {
     int start_key = hash & (HASH_TABLE_SIZE - 1);
     int i = 0;
 
@@ -51,7 +51,7 @@ static int hash_table_find(int * score_w_type, long int hash) {
     return 0;
 }
 
-static void hash_table_insert(long int hash, int score_w_type) {
+static void hash_table_insert(int64_t hash, int score_w_type) {
     int start_key = hash & (HASH_TABLE_SIZE - 1);
     int i = 0;
 
@@ -67,51 +67,39 @@ static void hash_table_insert(long int hash, int score_w_type) {
     }
 }
 
-static long int generate_mask() {
-    long int candidate = (((long int)rand()) <<  0) ^
-                         (((long int)rand()) << 15) ^
-                         (((long int)rand()) << 30) ^
-                         (((long int)rand()) << 45) ^
-                         (((long int)rand()) << 60);
-
-    for (int p = 0; p < 64; ++p) {
-        for (int t = 0; t < 12; ++t) {
-            if (zobrist_map[p][t] == candidate) {
-                return generate_mask();
-            }
-        }
-    }
-    for (int t = 0; t < MAX_SEARCH_DEPTH + 1; ++t) {
-        if (zobrist_depth[t] == candidate) {
-            return generate_mask();
-        }
-    }
-    for (int t = 0; t < 4; ++t) {
-        if (zobrist_castling[t] == candidate) {
-            return generate_mask();
-        }
-    }
-
-    return candidate;
-}
-
 static void populate_zobrist_masks() {
+    int nItems = 64 * 12 + MAX_SEARCH_DEPTH + 1 + 4;
+    sprintf(buffer, "zobrist_%d.bin", nItems);
+    FILE * s = fopen(buffer, "rb");
+    if (s == NULL) {
+        fprintf(stderr, "Zobrist file with %d entries (depth %d) not found.\n", nItems, MAX_SEARCH_DEPTH);
+        exit(1);
+    }
+
+    int64_t * zobrist_file = malloc(sizeof(int64_t) * nItems);
+    fread(zobrist_file, sizeof(int64_t), nItems, s);
+    fclose(s);
+
+    int item = 0;
+
     for (int p = 0; p < 64; ++p) {
         for (int t = 0; t < 12; ++t) {
-            zobrist_map[p][t] = generate_mask();
+            zobrist_map[p][t] = zobrist_file[item++];
         }
     }
 
     for (int t = 0; t < MAX_SEARCH_DEPTH + 1; ++t) {
-        zobrist_depth[t] = generate_mask();
+        zobrist_depth[t] = zobrist_file[item++];
     }
 
     for (int t = 0; t < 4; ++t) {
-        zobrist_castling[t] = generate_mask();
+        zobrist_castling[t] = zobrist_file[item++];
     }
+
+    free(zobrist_file);
 }
 
-static long int update_hash_with_piece(long int hash, int pos, char piece) {
+static int64_t update_hash_with_piece(int64_t hash, int pos, char piece) {
     switch (piece) {
         case 'P':
             return hash ^ (zobrist_map[pos][0]);
@@ -140,7 +128,7 @@ static long int update_hash_with_piece(long int hash, int pos, char piece) {
     }
 }
 
-static long int update_hash_before_play(long int hash, const board_t * board, const play_t * play, int depth) {
+static int64_t update_hash_before_play(int64_t hash, const board_t * board, const play_t * play, int depth) {
     int from_x = play->from_x;
     int from_y = play->from_y;
     int to_x = play->to_x;
@@ -204,7 +192,7 @@ static long int update_hash_before_play(long int hash, const board_t * board, co
     return hash;
 }
 
-static long int update_hash_after_play(long int hash, const board_t * board, const play_t * play, int depth) {
+static int64_t update_hash_after_play(int64_t hash, const board_t * board, const play_t * play, int depth) {
     int to_x = play->to_x;
     int to_y = play->to_y;
     int en_passant_x = board->en_passant_x;
@@ -220,8 +208,8 @@ static long int update_hash_after_play(long int hash, const board_t * board, con
     return hash;
 }
 
-static long int hash_from_board(const board_t * board, int depth) {
-    long int hash = 0xAAAAAAAAAAAAAAAA;
+static int64_t hash_from_board(const board_t * board, int depth) {
+    int64_t hash = 0xAAAAAAAAAAAAAAAA;
 
     for (int p = 0; p < 64; ++p) {
         char piece = board->b[p];
@@ -261,8 +249,8 @@ static int determine_color(char c) {
 }
 
 static void print_board(const board_t * board) {
-    board_to_fen(input_buffer, board);
-    printf("%s\n", input_buffer);
+    board_to_fen(buffer, board);
+    printf("%s\n", buffer);
     printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
         printf("║ ");
@@ -1255,7 +1243,7 @@ static int king_threatened(board_t * board) {
     return 0;
 }
 
-static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score, long int hash) {
+static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
     if (board->halfmoves == 50) {
         return board->color != WHITE_COLOR ? 10000000 + depth * 128 : -10000000 - depth * 128;
     }
@@ -1327,7 +1315,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
 #if ENABLE_TRANSPOTION_DETECTION
-        long int this_hash = update_hash_before_play(hash, board, &valid_plays[i], depth);
+        int64_t this_hash = update_hash_before_play(hash, board, &valid_plays[i], depth);
 #endif
 
         int score = just_play(&board_cpy, &valid_plays[i], initial_score);
@@ -1410,11 +1398,11 @@ static int ai_play(play_t * play) {
         int score = just_play(&board_cpy, &valid_plays[i], 0);
         int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
-        board_to_short_string(input_buffer, &board_cpy);
+        board_to_short_string(buffer, &board_cpy);
 
         int position_repeated = 0;
         for (int pos = 0; pos < past_plays_count; ++pos) {
-            if (strcmp(past_positions[pos], input_buffer) == 0) {
+            if (strcmp(past_positions[pos], buffer) == 0) {
                 position_repeated++;
                 if (position_repeated == 2) {
                     break;
@@ -1470,18 +1458,18 @@ static int ai_play(play_t * play) {
 static char input_promotion_piece() {
     while (1) {
         printf("Promotion choice (options: Q, N, B, R): ");
-        fgets(input_buffer, 1024, stdin);
+        fgets(buffer, 1024, stdin);
 
-        if (input_buffer[0] == 'q' || input_buffer[0] == 'Q') {
+        if (buffer[0] == 'q' || buffer[0] == 'Q') {
             return PROMOTION_QUEEN;
         }
-        if (input_buffer[0] == 'n' || input_buffer[0] == 'N') {
+        if (buffer[0] == 'n' || buffer[0] == 'N') {
             return PROMOTION_KNIGHT;
         }
-        if (input_buffer[0] == 'b' || input_buffer[0] == 'B') {
+        if (buffer[0] == 'b' || buffer[0] == 'B') {
             return PROMOTION_BISHOP;
         }
-        if (input_buffer[0] == 'r' || input_buffer[0] == 'R') {
+        if (buffer[0] == 'r' || buffer[0] == 'R') {
             return PROMOTION_ROOK;
         }
     }
@@ -1541,10 +1529,10 @@ static char * read_play(play_t * play, char * str) {
 static void input_play(play_t * play, const play_t * valid_plays, int valid_plays_i) {
     while (1) {
         printf("Input (example: e2e4): ");
-        fgets(input_buffer, 1024, stdin);
+        fgets(buffer, 1024, stdin);
 
-        input_buffer[4] = 0;
-        char * input_is_valid = read_play(play, input_buffer);
+        buffer[4] = 0;
+        char * input_is_valid = read_play(play, buffer);
 
         if (input_is_valid) {
             int play_is_valid = 0;
@@ -1642,14 +1630,14 @@ static void text_mode() {
     int player_two_is_human;
 
     while (1) {
-        fgets(input_buffer, 1024, stdin);
+        fgets(buffer, 1024, stdin);
 
-        if (strcmp(input_buffer, "1\n") == 0) {
+        if (strcmp(buffer, "1\n") == 0) {
             player_one_is_human = 1;
             player_two_is_human = 0;
             break;
         }
-        if (strcmp(input_buffer, "2\n") == 0) {
+        if (strcmp(buffer, "2\n") == 0) {
             player_one_is_human = 0;
             player_two_is_human = 1;
             break;
@@ -1672,52 +1660,52 @@ static void uci_mode() {
     fflush(fd);
 
     while (1) {
-        if (fgets(input_buffer, 1024, stdin) == NULL) {
+        if (fgets(buffer, 1024, stdin) == NULL) {
             break;
         }
         for (int i = 0; i < 1024; ++i) {
-            if (input_buffer[i] == '\n') {
-                input_buffer[i] = 0;
+            if (buffer[i] == '\n') {
+                buffer[i] = 0;
                 break;
             }
         }
 
-        fprintf(fd, "> %s\n", input_buffer);
+        fprintf(fd, "> %s\n", buffer);
         fflush(fd);
 
-        if (feof(fd) || ferror(fd) || strcmp(input_buffer, "quit") == 0) {
+        if (feof(fd) || ferror(fd) || strcmp(buffer, "quit") == 0) {
             break;
         }
-        if (input_buffer[0] == '#') {
+        if (buffer[0] == '#') {
             continue;
         }
-        if (strcmp(input_buffer, "uci") == 0) {
-            sprintf(input_buffer, "id name prawn %s", PROGRAM_VERSION);
-            send_uci_command(fd, input_buffer);
+        if (strcmp(buffer, "uci") == 0) {
+            sprintf(buffer, "id name prawn %s", PROGRAM_VERSION);
+            send_uci_command(fd, buffer);
             send_uci_command(fd, "id author gonmf");
             send_uci_command(fd, "uciok");
             continue;
         }
-        if (strcmp(input_buffer, "isready") == 0) {
+        if (strcmp(buffer, "isready") == 0) {
             send_uci_command(fd, "readyok");
             continue;
         }
-        if (strcmp(input_buffer, "ucinewgame") == 0) {
+        if (strcmp(buffer, "ucinewgame") == 0) {
             reset_board();
             continue;
         }
-        if (strncmp(input_buffer, "position ", strlen("position ")) == 0) {
-            char * str = strstr(input_buffer, " startpos ");
+        if (strncmp(buffer, "position ", strlen("position ")) == 0) {
+            char * str = strstr(buffer, " startpos ");
             if (str) {
                 reset_board();
             } else {
-                str = strstr(input_buffer, " fen ");
+                str = strstr(buffer, " fen ");
                 if (str) {
                     fen_to_board(&board, str + strlen(" fen "));
                 }
             }
 
-            str = strstr(input_buffer, " moves ");
+            str = strstr(buffer, " moves ");
             if (str) {
                 str += strlen(" moves ");
 
@@ -1731,7 +1719,7 @@ static void uci_mode() {
             }
             continue;
         }
-        if (strcmp(input_buffer, "go") == 0 || strncmp(input_buffer, "go ", strlen("go ")) == 0) {
+        if (strcmp(buffer, "go") == 0 || strncmp(buffer, "go ", strlen("go ")) == 0) {
             play_t play;
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
@@ -1746,17 +1734,17 @@ static void uci_mode() {
             }
 
             if (play.promotion_option == PROMOTION_QUEEN) {
-                sprintf(input_buffer, "bestmove %c%d%c%dq", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(buffer, "bestmove %c%d%c%dq", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else if (play.promotion_option == PROMOTION_KNIGHT) {
-                sprintf(input_buffer, "bestmove %c%d%c%dn", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(buffer, "bestmove %c%d%c%dn", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else if (play.promotion_option == PROMOTION_BISHOP) {
-                sprintf(input_buffer, "bestmove %c%d%c%db", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(buffer, "bestmove %c%d%c%db", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else if (play.promotion_option == PROMOTION_ROOK) {
-                sprintf(input_buffer, "bestmove %c%d%c%dr", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(buffer, "bestmove %c%d%c%dr", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             } else {
-                sprintf(input_buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+                sprintf(buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
             }
-            send_uci_command(fd, input_buffer);
+            send_uci_command(fd, buffer);
             continue;
         }
     }
