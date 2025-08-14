@@ -39,7 +39,7 @@ static int hash_table_find(int * score_w_type, int64_t hash) {
     int start_key = hash & (HASH_TABLE_SIZE - 1);
     int i = 0;
 
-    while (i < 100) {
+    while (i < 5) {
         int key = (start_key + i) & (HASH_TABLE_SIZE - 1);
         if (hash_table[key].hash == hash) {
             *score_w_type = hash_table[key].score_w_type;
@@ -55,7 +55,7 @@ static void hash_table_insert(int64_t hash, int score_w_type) {
     int start_key = hash & (HASH_TABLE_SIZE - 1);
     int i = 0;
 
-    while (i < 100) {
+    while (i < 5) {
         int key = (start_key + i) & (HASH_TABLE_SIZE - 1);
         if ((hash_table[key].score_w_type & 3) == 0) {
             hash_table[key].hash = hash;
@@ -69,7 +69,7 @@ static void hash_table_insert(int64_t hash, int score_w_type) {
 
 static void populate_zobrist_masks() {
     int nItems = 64 * 12 + MAX_SEARCH_DEPTH + 1 + 4;
-    sprintf(buffer, "zobrist_%d.bin", nItems);
+    sprintf(buffer, "zobrist_%d.bin", (nItems & 1) ? nItems + 1 : nItems);
     FILE * s = fopen(buffer, "rb");
     if (s == NULL) {
         fprintf(stderr, "Zobrist file with %d entries (depth %d) not found.\n", nItems, MAX_SEARCH_DEPTH);
