@@ -12,4 +12,4 @@ For performance testing against another program I use `cutechess`:
 ./cutechess-cli -engine cmd=./prawn proto=uci -engine cmd=./prawn-alt proto=uci -games 10 -each tc=40/60 -debug
 ```
 
-In terms of Lichess ELO it is about 1900 ELO playing with search depth 5 (very very fast).
+In terms of strength it is about 1900 Lichess ELO with the default settings.
