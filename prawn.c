@@ -26,6 +26,13 @@ static char last_play_y = -1;
     valid_plays[valid_plays_i].to_y = (TO_Y); \
     valid_plays_i = valid_plays_i + 1;
 
+static uint64_t white_pawn_capture_masks[64];
+static uint64_t black_pawn_capture_masks[64];
+static uint64_t white_en_passant_capture_masks[8];
+static uint64_t black_en_passant_capture_masks[8];
+static uint64_t knight_moves_masks[64];
+static uint64_t king_moves_masks[64];
+
 #if ENABLE_TRANSPOTION_DETECTION
 static int64_t zobrist_map[64][12];
 static int64_t zobrist_depth[MAX_SEARCH_DEPTH + 1];
@@ -33,6 +40,200 @@ static int64_t zobrist_en_passant[8];
 static int64_t zobrist_castling[4];
 
 static hash_table_entry_t * hash_table;
+
+static void populate_pawn_capture_masks() {
+    int x2, y2;
+
+    for (int p = 0; p < 64; ++p) {
+        white_pawn_capture_masks[p] = 0ULL;
+
+        int x = p % 8;
+        int y = p / 8;
+
+        x2 = x - 1;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            white_pawn_capture_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            white_pawn_capture_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+    }
+
+    for (int p = 0; p < 64; ++p) {
+        black_pawn_capture_masks[p] = 0ULL;
+
+        int x = p % 8;
+        int y = p / 8;
+
+        x2 = x - 1;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            black_pawn_capture_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            black_pawn_capture_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+    }
+
+    for (int x = 0; x < 8; ++x) {
+        white_en_passant_capture_masks[x] = 0ULL;
+
+        int y = 2;
+
+        x2 = x - 1;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            white_en_passant_capture_masks[x] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            white_en_passant_capture_masks[x] |= (1ULL << (y2 * 8 + x2));
+        }
+    }
+
+    for (int x = 0; x < 8; ++x) {
+        black_en_passant_capture_masks[x] = 0ULL;
+
+        int y = 5;
+
+        x2 = x - 1;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            black_en_passant_capture_masks[x] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            black_en_passant_capture_masks[x] |= (1ULL << (y2 * 8 + x2));
+        }
+    }
+}
+
+static void populate_knight_moves_masks() {
+    int x2, y2;
+
+    for (int p = 0; p < 64; ++p) {
+        knight_moves_masks[p] = 0ULL;
+
+        int x = p % 8;
+        int y = p / 8;
+
+        x2 = x - 1;
+        y2 = y - 2;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x - 1;
+        y2 = y + 2;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y + 2;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y - 2;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x - 2;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x - 2;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 2;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 2;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+    }
+}
+
+static void populate_king_moves_masks() {
+    for (int p = 0; p < 64; ++p) {
+        king_moves_masks[p] = 0ULL;
+
+        int x = p % 8;
+        int y = p / 8;
+
+        int x2 = x - 1;
+        int y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x - 1;
+        y2 = y;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x - 1;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y - 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+
+        x2 = x + 1;
+        y2 = y + 1;
+        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        }
+    }
+}
 
 // We tell if the entry is filled in by the 2 lowest bits of the score_w_type present, that must be zero
 static int hash_table_find(int * score_w_type, int64_t hash) {
@@ -64,6 +265,40 @@ static void hash_table_insert(int64_t hash, int score_w_type) {
         }
 
         ++i;
+    }
+}
+
+static void reset_board_bitmaps(board_t * board) {
+    board->white_pawns = 0;
+    board->black_pawns = 0;
+    board->white_knights = 0;
+    board->black_knights = 0;
+    board->white_bishops = 0;
+    board->black_bishops = 0;
+    board->white_rooks = 0;
+    board->black_rooks = 0;
+    board->white_queens = 0;
+    board->black_queens = 0;
+    board->white_kings = 0;
+    board->black_kings = 0;
+
+    for (int p = 0; p < 64; ++p) {
+        uint64_t bit = 1ULL << p;
+
+        switch (board->b[p]) {
+            case 'P': board->white_pawns   |= bit; break;
+            case 'p': board->black_pawns   |= bit; break;
+            case 'N': board->white_knights |= bit; break;
+            case 'n': board->black_knights |= bit; break;
+            case 'B': board->white_bishops |= bit; break;
+            case 'b': board->black_bishops |= bit; break;
+            case 'R': board->white_rooks   |= bit; break;
+            case 'r': board->black_rooks   |= bit; break;
+            case 'Q': board->white_queens  |= bit; break;
+            case 'q': board->black_queens  |= bit; break;
+            case 'K': board->white_kings   |= bit; break;
+            case 'k': board->black_kings   |= bit; break;
+        }
     }
 }
 
@@ -101,30 +336,18 @@ static void populate_zobrist_masks() {
 
 static int64_t update_hash_with_piece(int64_t hash, int pos, char piece) {
     switch (piece) {
-        case 'P':
-            return hash ^ (zobrist_map[pos][0]);
-        case 'p':
-            return hash ^ (zobrist_map[pos][1]);
-        case 'R':
-            return hash ^ (zobrist_map[pos][2]);
-        case 'r':
-            return hash ^ (zobrist_map[pos][3]);
-        case 'N':
-            return hash ^ (zobrist_map[pos][4]);
-        case 'n':
-            return hash ^ (zobrist_map[pos][5]);
-        case 'B':
-            return hash ^ (zobrist_map[pos][6]);
-        case 'b':
-            return hash ^ (zobrist_map[pos][7]);
-        case 'Q':
-            return hash ^ (zobrist_map[pos][8]);
-        case 'q':
-            return hash ^ (zobrist_map[pos][9]);
-        case 'K':
-            return hash ^ (zobrist_map[pos][10]);
-        default:
-            return hash ^ (zobrist_map[pos][11]);
+        case 'P': return hash ^ (zobrist_map[pos][0]);
+        case 'p': return hash ^ (zobrist_map[pos][1]);
+        case 'R': return hash ^ (zobrist_map[pos][2]);
+        case 'r': return hash ^ (zobrist_map[pos][3]);
+        case 'N': return hash ^ (zobrist_map[pos][4]);
+        case 'n': return hash ^ (zobrist_map[pos][5]);
+        case 'B': return hash ^ (zobrist_map[pos][6]);
+        case 'b': return hash ^ (zobrist_map[pos][7]);
+        case 'Q': return hash ^ (zobrist_map[pos][8]);
+        case 'q': return hash ^ (zobrist_map[pos][9]);
+        case 'K': return hash ^ (zobrist_map[pos][10]);
+        default:  return hash ^ (zobrist_map[pos][11]);
     }
 }
 
@@ -241,13 +464,6 @@ static int64_t hash_from_board(const board_t * board, int depth) {
 }
 #endif
 
-static int determine_color(char c) {
-    if (c == ' ') {
-        return NO_COLOR;
-    }
-    return c > 'a' ? BLACK_COLOR : WHITE_COLOR;
-}
-
 static void print_board(const board_t * board) {
     board_to_fen(buffer, board);
     printf("%s\n", buffer);
@@ -286,41 +502,93 @@ static int just_play(board_t * board, const play_t * play, int score) {
     char to_y = play->to_y;
     char promotion_option = play->promotion_option;
 
+    int from_p = from_y * 8 + from_x;
+    int to_p = to_y * 8 + to_x;
+    // Remove captured piece, at destination
+    switch (board->b[to_p]) {
+        case 'P': board->white_pawns ^= (1ULL << to_p); break;
+        case 'p': board->black_pawns ^= (1ULL << to_p); break;
+        case 'N': board->white_knights ^= (1ULL << to_p); break;
+        case 'n': board->black_knights ^= (1ULL << to_p); break;
+        case 'B': board->white_bishops ^= (1ULL << to_p); break;
+        case 'b': board->black_bishops ^= (1ULL << to_p); break;
+        case 'R': board->white_rooks ^= (1ULL << to_p); break;
+        case 'r': board->black_rooks ^= (1ULL << to_p); break;
+        case 'Q': board->white_queens ^= (1ULL << to_p); break;
+        case 'q': board->black_queens ^= (1ULL << to_p); break;
+        case 'K': board->white_kings ^= (1ULL << to_p); break;
+        case 'k': board->black_kings ^= (1ULL << to_p); break;
+    }
+    // Remove moved piece from origin
+    switch (board->b[from_p]) {
+        case 'P': board->white_pawns ^= (1ULL << from_p); break;
+        case 'p': board->black_pawns ^= (1ULL << from_p); break;
+        case 'N': board->white_knights ^= (1ULL << from_p); break;
+        case 'n': board->black_knights ^= (1ULL << from_p); break;
+        case 'B': board->white_bishops ^= (1ULL << from_p); break;
+        case 'b': board->black_bishops ^= (1ULL << from_p); break;
+        case 'R': board->white_rooks ^= (1ULL << from_p); break;
+        case 'r': board->black_rooks ^= (1ULL << from_p); break;
+        case 'Q': board->white_queens ^= (1ULL << from_p); break;
+        case 'q': board->black_queens ^= (1ULL << from_p); break;
+        case 'K': board->white_kings ^= (1ULL << from_p); break;
+        case 'k': board->black_kings ^= (1ULL << from_p); break;
+    }
+    // Add moved piece to destination
+    if (promotion_option == 0) {
+        switch (board->b[from_p]) {
+            case 'P': board->white_pawns ^= (1ULL << to_p); break;
+            case 'p': board->black_pawns ^= (1ULL << to_p); break;
+            case 'N': board->white_knights ^= (1ULL << to_p); break;
+            case 'n': board->black_knights ^= (1ULL << to_p); break;
+            case 'B': board->white_bishops ^= (1ULL << to_p); break;
+            case 'b': board->black_bishops ^= (1ULL << to_p); break;
+            case 'R': board->white_rooks ^= (1ULL << to_p); break;
+            case 'r': board->black_rooks ^= (1ULL << to_p); break;
+            case 'Q': board->white_queens ^= (1ULL << to_p); break;
+            case 'q': board->black_queens ^= (1ULL << to_p); break;
+            case 'K': board->white_kings ^= (1ULL << to_p); break;
+            case 'k': board->black_kings ^= (1ULL << to_p); break;
+        }
+    } else {
+        if (board->color == WHITE_COLOR) {
+            switch (promotion_option) {
+                case PROMOTION_QUEEN: board->white_queens ^= (1ULL << to_p); break;
+                case PROMOTION_KNIGHT: board->white_knights ^= (1ULL << to_p); break;
+                case PROMOTION_BISHOP: board->white_bishops ^= (1ULL << to_p); break;
+                case PROMOTION_ROOK: board->white_rooks ^= (1ULL << to_p); break;
+            }
+        } else {
+            switch (promotion_option) {
+                case PROMOTION_QUEEN: board->black_queens ^= (1ULL << to_p); break;
+                case PROMOTION_KNIGHT: board->black_knights ^= (1ULL << to_p); break;
+                case PROMOTION_BISHOP: board->black_bishops ^= (1ULL << to_p); break;
+                case PROMOTION_ROOK: board->black_rooks ^= (1ULL << to_p); break;
+            }
+        }
+    }
+
     switch (board->b[to_y * 8 + to_x]) {
-        case 'P':
-           score -= 1 * PIECE_SCORE_MULTIPLIER;
-           break;
-        case 'p':
-           score += 1 * PIECE_SCORE_MULTIPLIER;
-           break;
-        case 'N':
-        case 'B':
-            score -= 3 * PIECE_SCORE_MULTIPLIER;
-            break;
-        case 'n':
-        case 'b':
-            score += 3 * PIECE_SCORE_MULTIPLIER;
-            break;
-        case 'R':
-            score -= 5 * PIECE_SCORE_MULTIPLIER;
-            break;
-        case 'r':
-            score += 5 * PIECE_SCORE_MULTIPLIER;
-            break;
-        case 'Q':
-            score -= 9 * PIECE_SCORE_MULTIPLIER;
-            break;
-        case 'q':
-            score += 9 * PIECE_SCORE_MULTIPLIER;
-            break;
+        case 'P': score -= 1 * PIECE_SCORE_MULTIPLIER; break;
+        case 'p': score += 1 * PIECE_SCORE_MULTIPLIER; break;
+        case 'N': score -= 3 * PIECE_SCORE_MULTIPLIER; break;
+        case 'n': score += 3 * PIECE_SCORE_MULTIPLIER; break;
+        case 'B': score -= 3 * PIECE_SCORE_MULTIPLIER; break;
+        case 'b': score += 3 * PIECE_SCORE_MULTIPLIER; break;
+        case 'R': score -= 5 * PIECE_SCORE_MULTIPLIER; break;
+        case 'r': score += 5 * PIECE_SCORE_MULTIPLIER; break;
+        case 'Q': score -= 9 * PIECE_SCORE_MULTIPLIER; break;
+        case 'q': score += 9 * PIECE_SCORE_MULTIPLIER; break;
     }
 
     if (board->en_passant_x != NO_EN_PASSANT) {
         if (board->en_passant_x == to_x) {
             if (from_y == 3 && board->b[from_y * 8 + from_x] == 'P') {
+                board->black_pawns ^= (1ULL << (from_y * 8 + to_x));
                 board->b[from_y * 8 + to_x] = ' ';
                 score += 1 * PIECE_SCORE_MULTIPLIER;
             } else if (from_y == 4 && board->b[from_y * 8 + from_x] == 'p') {
+                board->white_pawns ^= (1ULL << (from_y * 8 + to_x));
                 board->b[from_y * 8 + to_x] = ' ';
                 score -= 1 * PIECE_SCORE_MULTIPLIER;
             }
@@ -331,10 +599,14 @@ static int just_play(board_t * board, const play_t * play, int score) {
     if (board->b[from_y * 8 + from_x] == 'K') {
         if (from_y == to_y) {
             if (board->white_right_castling && from_x + 2 == to_x && board->b[from_y * 8 + from_x + 1] == ' ' && board->b[from_y * 8 + from_x + 2] == ' ') {
+                board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
                 board->b[to_y * 8 + to_x - 1] = 'R';
+                board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
                 board->b[to_y * 8 + to_x + 1] = ' ';
             } else if (board->white_left_castling && from_x - 2 == to_x && board->b[from_y * 8 + from_x - 1] == ' ' && board->b[from_y * 8 + from_x - 2] == ' ' && board->b[from_y * 8 + from_x - 3] == ' ') {
+                board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
                 board->b[to_y * 8 + to_x - 2] = ' ';
+                board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
                 board->b[to_y * 8 + to_x + 1] = 'R';
             }
         }
@@ -343,10 +615,14 @@ static int just_play(board_t * board, const play_t * play, int score) {
     } else if (board->b[from_y * 8 + from_x] == 'k') {
         if (from_y == to_y) {
             if (board->black_right_castling && from_x + 2 == to_x && board->b[from_y * 8 + from_x + 1] == ' ' && board->b[from_y * 8 + from_x + 2] == ' ') {
+                board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
                 board->b[to_y * 8 + to_x - 1] = 'r';
+                board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
                 board->b[to_y * 8 + to_x + 1] = ' ';
             } else if (board->black_left_castling && from_x - 2 == to_x && board->b[from_y * 8 + from_x - 1] == ' ' && board->b[from_y * 8 + from_x - 2] == ' ' && board->b[from_y * 8 + from_x - 3] == ' ') {
+                board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
                 board->b[to_y * 8 + to_x - 2] = ' ';
+                board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
                 board->b[to_y * 8 + to_x + 1] = 'r';
             }
         }
@@ -445,247 +721,287 @@ static void actual_play(const play_t * play) {
 static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
 
-    for (int y = 0; y < 8; y++) {
-        for (int x = 0; x < 8; x++) {
-            char piece = board->b[y * 8 + x];
-            if (determine_color(piece) != WHITE_COLOR) {
-                continue;
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t empty_mask = ~(white_mask | black_mask);
+    uint64_t moves = (board->white_pawns >> 8) & empty_mask;
+
+    // Pawn single move forward and promotion
+    while (moves) {
+        int to = __builtin_ctzll(moves);
+        int from = to + 8;
+
+        int to_x = to % 8;
+        int to_y = to / 8;
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        if (to_y == 0) {
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+        } else {
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Pawn double move forward
+    uint64_t single = (board->white_pawns >> 8) & empty_mask;
+    moves = ((single >> 8) & empty_mask) & 0x00000000FF000000ULL;
+
+    while (moves) {
+        int to = __builtin_ctzll(moves);
+        int from = to + 16;
+
+        int to_x = to % 8;
+        int to_y = to / 8;
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        valid_plays[valid_plays_i].promotion_option = 0;
+        valid_plays[valid_plays_i].from_x = from_x;
+        valid_plays[valid_plays_i].from_y = from_y;
+        valid_plays[valid_plays_i].to_x = to_x;
+        valid_plays[valid_plays_i].to_y = to_y;
+        valid_plays_i = valid_plays_i + 1;
+
+        moves &= moves - 1;
+    }
+
+    // Pawn captures
+    moves = board->white_pawns;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = white_pawn_capture_masks[from] & black_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            if (to_y == 0) {
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+            } else {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
             }
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Pawn captures via en passant
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        moves = white_en_passant_capture_masks[(int)board->en_passant_x] & board->white_pawns;
+        while (moves) {
+            int from = __builtin_ctzll(moves);
+            int from_x = from % 8;
+            int from_y = from / 8;
+            int to_x = board->en_passant_x;
+            int to_y = 2;
 
             valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
 
-            if (piece == 'P') {
-                if (board->b[(y - 1) * 8 + x] == ' ') {
-                    if (y == 1) {
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
-                        QUEUE_PLAY(x, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
-                        QUEUE_PLAY(x, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
-                        QUEUE_PLAY(x, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
-                        QUEUE_PLAY(x, y - 1);
-                    } else {
-                        QUEUE_PLAY(x, y - 1);
-                        if (y == 6 && board->b[(y - 2) * 8 + x] == ' ') {
-                            QUEUE_PLAY(x, y - 2);
-                        }
-                    }
+            moves &= moves - 1;
+        }
+    }
+
+    // Knight moves
+    moves = board->white_knights;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = knight_moves_masks[from] & (empty_mask | black_mask);
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // King moves
+    moves = board->white_kings;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = king_moves_masks[from] & (empty_mask | black_mask);
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Rooks and queens
+    moves = board->white_rooks | board->white_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & white_mask) {
+                    break;
                 }
-                if (x < 7 && determine_color(board->b[(y - 1) * 8 + x + 1]) == BLACK_COLOR) {
-                    if (y == 1) {
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
-                        QUEUE_PLAY(x + 1, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
-                        QUEUE_PLAY(x + 1, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
-                        QUEUE_PLAY(x + 1, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
-                        QUEUE_PLAY(x + 1, y - 1);
-                    } else {
-                        QUEUE_PLAY(x + 1, y - 1);
-                    }
+
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = x;
+                valid_plays[valid_plays_i].to_y = y;
+                valid_plays_i++;
+
+                if (to_mask & black_mask) {
+                    break;
                 }
-                if (x > 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) == BLACK_COLOR) {
-                    if (y == 1) {
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
-                        QUEUE_PLAY(x - 1, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
-                        QUEUE_PLAY(x - 1, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
-                        QUEUE_PLAY(x - 1, y - 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
-                        QUEUE_PLAY(x - 1, y - 1);
-                    } else {
-                        QUEUE_PLAY(x - 1, y - 1);
-                    }
-                }
-                if (y == 3 && board->en_passant_x != NO_EN_PASSANT) {
-                    if (board->en_passant_x == x - 1) {
-                        QUEUE_PLAY(x - 1, y - 1);
-                    } else if (board->en_passant_x == x + 1) {
-                        QUEUE_PLAY(x + 1, y - 1);
-                    }
-                }
-                continue;
-            }
-            if (piece == 'N') {
-                char x2 = x - 1;
-                char y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                continue;
-            }
-            if (piece == 'R' || piece == 'Q') {
-                for (char dst = 1; x - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x - dst]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x - dst, y);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x + dst]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x + dst, y);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x, y - dst);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x, y + dst);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                if (piece == 'R') {
-                    continue;
-                }
-            }
-            if (piece == 'B' || piece == 'Q') {
-                for (char dst = 1; x - dst >= 0 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x - dst]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x - dst, y - dst);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x + dst <= 7 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x + dst]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x + dst, y - dst);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x - dst >= 0 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x - dst]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x - dst, y + dst);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x + dst <= 7 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x + dst]);
-                    if (piece_color != WHITE_COLOR) {
-                        QUEUE_PLAY(x + dst, y + dst);
-                        if (piece_color == BLACK_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if (piece == 'K') {
-                if (x - 1 >= 0) {
-                    if (determine_color(board->b[y * 8 + x - 1]) != WHITE_COLOR) {
-                        QUEUE_PLAY(x - 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) != WHITE_COLOR) {
-                        QUEUE_PLAY(x - 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) != WHITE_COLOR) {
-                        QUEUE_PLAY(x - 1, y + 1);
-                    }
-                }
-                if (x + 1 <= 7) {
-                    if (determine_color(board->b[y * 8 + x + 1]) != WHITE_COLOR) {
-                        QUEUE_PLAY(x + 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) != WHITE_COLOR) {
-                        QUEUE_PLAY(x + 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) != WHITE_COLOR) {
-                        QUEUE_PLAY(x + 1, y + 1);
-                    }
-                }
-                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x, y - 1);
-                }
-                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) != WHITE_COLOR) {
-                    QUEUE_PLAY(x, y + 1);
-                }
-                if (board->white_right_castling && board->b[7 * 8 + 4 + 1] == ' ' && board->b[7 * 8 + 4 + 2] == ' ') {
-                    QUEUE_PLAY(x + 2, y);
-                }
-                if (board->white_left_castling && board->b[7 * 8 + 4 - 1] == ' ' && board->b[7 * 8 + 4 - 2] == ' ' && board->b[7 * 8 + 4 - 3] == ' ') {
-                    QUEUE_PLAY(x - 2, y);
-                }
-                continue;
+
+                x += dx;
+                y += dy;
             }
         }
+
+        moves &= moves - 1;
+    }
+
+    // Bishops and queens
+    moves = board->white_bishops | board->white_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & white_mask) {
+                    break;
+                }
+
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = x;
+                valid_plays[valid_plays_i].to_y = y;
+                valid_plays_i++;
+
+                if (to_mask & black_mask) {
+                    break;
+                }
+
+                x += dx;
+                y += dy;
+            }
+        }
+
+        moves &= moves - 1;
     }
 
     return valid_plays_i;
@@ -694,619 +1010,655 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
 static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
 
-    for (int y = 7; y >= 0; y--) {
-        for (int x = 0; x < 8; x++) {
-            char piece = board->b[y * 8 + x];
-            if (determine_color(piece) != BLACK_COLOR) {
-                continue;
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t empty_mask = ~(white_mask | black_mask);
+    uint64_t moves = (board->black_pawns << 8) & empty_mask;
+
+    // Pawn single move forward and promotion
+    while (moves) {
+        int to = __builtin_ctzll(moves);
+        int from = to - 8;
+
+        int to_x = to % 8;
+        int to_y = to / 8;
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        if (to_y == 7) {
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+            valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+        } else {
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Pawn double move forward
+    uint64_t single = (board->black_pawns << 8) & empty_mask;
+    moves = ((single << 8) & empty_mask) & 0x00000000FF000000ULL;
+
+    while (moves) {
+        int to = __builtin_ctzll(moves);
+        int from = to - 16;
+
+        int to_x = to % 8;
+        int to_y = to / 8;
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        valid_plays[valid_plays_i].promotion_option = 0;
+        valid_plays[valid_plays_i].from_x = from_x;
+        valid_plays[valid_plays_i].from_y = from_y;
+        valid_plays[valid_plays_i].to_x = to_x;
+        valid_plays[valid_plays_i].to_y = to_y;
+        valid_plays_i = valid_plays_i + 1;
+
+        moves &= moves - 1;
+    }
+
+    // Pawn captures
+    moves = board->black_pawns;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = white_pawn_capture_masks[from] & white_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            if (to_y == 7) {
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+                valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
+            } else {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i = valid_plays_i + 1;
             }
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Pawn captures via en passant
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        moves = black_en_passant_capture_masks[(int)board->en_passant_x] & board->black_pawns;
+        while (moves) {
+            int from = __builtin_ctzll(moves);
+            int from_x = from % 8;
+            int from_y = from / 8;
+            int to_x = board->en_passant_x;
+            int to_y = 5;
 
             valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
 
-            if (piece == 'p') {
-                if (board->b[(y + 1) * 8 + x] == ' ') {
-                    if (y == 6) {
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
-                        QUEUE_PLAY(x, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
-                        QUEUE_PLAY(x, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
-                        QUEUE_PLAY(x, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
-                        QUEUE_PLAY(x, y + 1);
-                    } else {
-                        QUEUE_PLAY(x, y + 1);
-                        if (y == 1 && board->b[(y + 2) * 8 + x] == ' ') {
-                            QUEUE_PLAY(x, y + 2);
-                        }
-                    }
+            moves &= moves - 1;
+        }
+    }
+
+    // Knight moves
+    moves = board->black_knights;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = knight_moves_masks[from] & (empty_mask | white_mask);
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // King moves
+    moves = board->black_kings;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = king_moves_masks[from] & (empty_mask | white_mask);
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Rooks and queens
+    moves = board->black_rooks | board->black_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & black_mask) {
+                    break;
                 }
-                if (x < 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) == WHITE_COLOR) {
-                    if (y == 6) {
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
-                        QUEUE_PLAY(x + 1, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
-                        QUEUE_PLAY(x + 1, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
-                        QUEUE_PLAY(x + 1, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
-                        QUEUE_PLAY(x + 1, y + 1);
-                    } else {
-                        QUEUE_PLAY(x + 1, y + 1);
-                    }
+
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = x;
+                valid_plays[valid_plays_i].to_y = y;
+                valid_plays_i++;
+
+                if (to_mask & white_mask) {
+                    break;
                 }
-                if (x > 0 && determine_color(board->b[(y + 1) * 8 + x - 1]) == WHITE_COLOR) {
-                    if (y == 6) {
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_QUEEN;
-                        QUEUE_PLAY(x - 1, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_KNIGHT;
-                        QUEUE_PLAY(x - 1, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_BISHOP;
-                        QUEUE_PLAY(x - 1, y + 1);
-                        valid_plays[valid_plays_i].promotion_option = PROMOTION_ROOK;
-                        QUEUE_PLAY(x - 1, y + 1);
-                    } else {
-                        QUEUE_PLAY(x - 1, y + 1);
-                    }
-                }
-                if (y == 4 && board->en_passant_x != NO_EN_PASSANT) {
-                    if (board->en_passant_x == x - 1) {
-                        QUEUE_PLAY(x - 1, y + 1);
-                    } else if (board->en_passant_x == x + 1) {
-                        QUEUE_PLAY(x + 1, y + 1);
-                    }
-                }
-                continue;
-            }
-            if (piece == 'n') {
-                char x2 = x - 1;
-                char y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                continue;
-            }
-            if (piece == 'r' || piece == 'q') {
-                for (char dst = 1; x - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x - dst]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x - dst, y);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x + dst]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x + dst, y);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x, y - dst);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x, y + dst);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                if (piece == 'r') {
-                    continue;
-                }
-            }
-            if (piece == 'b' || piece == 'q') {
-                for (char dst = 1; x - dst >= 0 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x - dst]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x - dst, y - dst);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x + dst <= 7 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x + dst]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x + dst, y - dst);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x - dst >= 0 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x - dst]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x - dst, y + dst);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                for (char dst = 1; x + dst <= 7 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x + dst]);
-                    if (piece_color != BLACK_COLOR) {
-                        QUEUE_PLAY(x + dst, y + dst);
-                        if (piece_color == WHITE_COLOR) {
-                            break;
-                        }
-                    } else {
-                        break;
-                    }
-                }
-                continue;
-            }
-            if (piece == 'k') {
-                if (x - 1 >= 0) {
-                    if (determine_color(board->b[y * 8 + x - 1]) != BLACK_COLOR) {
-                        QUEUE_PLAY(x - 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) != BLACK_COLOR) {
-                        QUEUE_PLAY(x - 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) != BLACK_COLOR) {
-                        QUEUE_PLAY(x - 1, y + 1);
-                    }
-                }
-                if (x + 1 <= 7) {
-                    if (determine_color(board->b[y * 8 + x + 1]) != BLACK_COLOR) {
-                        QUEUE_PLAY(x + 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) != BLACK_COLOR) {
-                        QUEUE_PLAY(x + 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) != BLACK_COLOR) {
-                        QUEUE_PLAY(x + 1, y + 1);
-                    }
-                }
-                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x, y - 1);
-                }
-                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) != BLACK_COLOR) {
-                    QUEUE_PLAY(x, y + 1);
-                }
-                if (board->black_right_castling && board->b[0 * 8 + 4 + 1] == ' ' && board->b[0 * 8 + 4 + 2] == ' ') {
-                    QUEUE_PLAY(x + 2, y);
-                }
-                if (board->black_left_castling && board->b[0 * 8 + 4 - 1] == ' ' && board->b[0 * 8 + 4 - 2] == ' ' && board->b[0 * 8 + 4 - 3] == ' ') {
-                    QUEUE_PLAY(x - 2, y);
-                }
-                continue;
+
+                x += dx;
+                y += dy;
             }
         }
+
+        moves &= moves - 1;
+    }
+
+    // Bishops and queens
+    moves = board->black_bishops | board->black_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & black_mask) {
+                    break;
+                }
+
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = x;
+                valid_plays[valid_plays_i].to_y = y;
+                valid_plays_i++;
+
+                if (to_mask & white_mask) {
+                    break;
+                }
+
+                x += dx;
+                y += dy;
+            }
+        }
+
+        moves &= moves - 1;
     }
 
     return valid_plays_i;
 }
 
 static int enumerate_possible_capture_plays_white(play_t * valid_plays, const board_t * board) {
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+
     int valid_plays_i = 0;
 
-    for (int y = 0; y < 8; y++) {
-        for (int x = 0; x < 8; x++) {
-            char piece = board->b[y * 8 + x];
-            if (determine_color(piece) != WHITE_COLOR) {
-                continue;
-            }
+    // Pawn captures
+    uint64_t moves = board->white_pawns;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
 
-            if (piece == 'P') {
-                if (x < 7 && determine_color(board->b[(y - 1) * 8 + x + 1]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x + 1, y - 1);
-                }
-                if (x > 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x - 1, y - 1);
-                }
-                continue;
-            }
-            if (piece == 'N') {
-                char x2 = x - 1;
-                char y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                continue;
-            }
-            if (piece == 'R' || piece == 'Q') {
-                for (char dst = 1; x - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x - dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x - dst, y);
-                    }
+        uint64_t moves_to = white_pawn_capture_masks[from] & black_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Pawn captures via en passant
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        moves = white_en_passant_capture_masks[(int)board->en_passant_x] & board->white_pawns;
+        while (moves) {
+            int from = __builtin_ctzll(moves);
+            int from_x = from % 8;
+            int from_y = from / 8;
+            int to_x = board->en_passant_x;
+            int to_y = 2;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves &= moves - 1;
+        }
+    }
+
+    // Knight captures
+    moves = board->white_knights;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = knight_moves_masks[from] & black_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // King captures
+    moves = board->white_kings;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = king_moves_masks[from] & black_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Rooks and queens
+    moves = board->white_rooks | board->white_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & white_mask) {
                     break;
                 }
-                for (char dst = 1; x + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x + dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x + dst, y);
-                    }
+
+                if (to_mask & black_mask) {
+                    valid_plays[valid_plays_i].promotion_option = 0;
+                    valid_plays[valid_plays_i].from_x = from_x;
+                    valid_plays[valid_plays_i].from_y = from_y;
+                    valid_plays[valid_plays_i].to_x = x;
+                    valid_plays[valid_plays_i].to_y = y;
+                    valid_plays_i++;
                     break;
                 }
-                for (char dst = 1; y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x, y - dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x, y + dst);
-                    }
-                    break;
-                }
-                if (piece == 'R') {
-                    continue;
-                }
-            }
-            if (piece == 'B' || piece == 'Q') {
-                for (char dst = 1; x - dst >= 0 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x - dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x - dst, y - dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; x + dst <= 7 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x + dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x + dst, y - dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; x - dst >= 0 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x - dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x - dst, y + dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; x + dst <= 7 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x + dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == BLACK_COLOR) {
-                        QUEUE_PLAY(x + dst, y + dst);
-                    }
-                    break;
-                }
-                continue;
-            }
-            if (piece == 'K') {
-                if (x - 1 >= 0) {
-                    if (determine_color(board->b[y * 8 + x - 1]) == BLACK_COLOR) {
-                        QUEUE_PLAY(x - 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) == BLACK_COLOR) {
-                        QUEUE_PLAY(x - 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) == BLACK_COLOR) {
-                        QUEUE_PLAY(x - 1, y + 1);
-                    }
-                }
-                if (x + 1 <= 7) {
-                    if (determine_color(board->b[y * 8 + x + 1]) == BLACK_COLOR) {
-                        QUEUE_PLAY(x + 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) == BLACK_COLOR) {
-                        QUEUE_PLAY(x + 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) == BLACK_COLOR) {
-                        QUEUE_PLAY(x + 1, y + 1);
-                    }
-                }
-                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x, y - 1);
-                }
-                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) == BLACK_COLOR) {
-                    QUEUE_PLAY(x, y + 1);
-                }
+
+                x += dx;
+                y += dy;
             }
         }
+
+        moves &= moves - 1;
+    }
+
+    // Bishops and queens
+    moves = board->white_bishops | board->white_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & white_mask) {
+                    break;
+                }
+
+                if (to_mask & black_mask) {
+                    valid_plays[valid_plays_i].promotion_option = 0;
+                    valid_plays[valid_plays_i].from_x = from_x;
+                    valid_plays[valid_plays_i].from_y = from_y;
+                    valid_plays[valid_plays_i].to_x = x;
+                    valid_plays[valid_plays_i].to_y = y;
+                    valid_plays_i++;
+                    break;
+                }
+
+                x += dx;
+                y += dy;
+            }
+        }
+
+        moves &= moves - 1;
     }
 
     return valid_plays_i;
 }
 
 static int enumerate_possible_capture_plays_black(play_t * valid_plays, const board_t * board) {
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+
     int valid_plays_i = 0;
 
-    for (int y = 0; y < 8; y++) {
-        for (int x = 0; x < 8; x++) {
-            char piece = board->b[y * 8 + x];
-            if (determine_color(piece) != BLACK_COLOR) {
-                continue;
-            }
+    // Pawn captures
+    uint64_t moves = board->black_pawns;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
 
-            if (piece == 'p') {
-                if (x < 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x + 1, y + 1);
-                }
-                if (x > 0 && determine_color(board->b[(y + 1) * 8 + x - 1]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x - 1, y + 1);
-                }
-                continue;
-            }
-            if (piece == 'n') {
-                char x2 = x - 1;
-                char y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y + 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 1;
-                y2 = y - 2;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x - 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y + 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                x2 = x + 2;
-                y2 = y - 1;
-                if (x2 >= 0 && x2 <= 7 && y2 >= 0 && y2 <= 7 && determine_color(board->b[y2 * 8 + x2]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x2, y2);
-                }
-                continue;
-            }
-            if (piece == 'r' || piece == 'q') {
-                for (char dst = 1; x - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x - dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x - dst, y);
-                    }
+        uint64_t moves_to = black_pawn_capture_masks[from] & white_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Pawn captures via en passant
+    if (board->en_passant_x != NO_EN_PASSANT) {
+        moves = black_en_passant_capture_masks[(int)board->en_passant_x] & board->black_pawns;
+        while (moves) {
+            int from = __builtin_ctzll(moves);
+            int from_x = from % 8;
+            int from_y = from / 8;
+            int to_x = board->en_passant_x;
+            int to_y = 2;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves &= moves - 1;
+        }
+    }
+
+    // Knight captures
+    moves = board->black_knights;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = knight_moves_masks[from] & white_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // King captures
+    moves = board->black_kings;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        uint64_t moves_to = king_moves_masks[from] & white_mask;
+        while (moves_to) {
+            int to = __builtin_ctzll(moves_to);
+            int to_x = to % 8;
+            int to_y = to / 8;
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i = valid_plays_i + 1;
+
+            moves_to &= moves_to - 1;
+        }
+
+        moves &= moves - 1;
+    }
+
+    // Rooks and queens
+    moves = board->black_rooks | board->black_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & black_mask) {
                     break;
                 }
-                for (char dst = 1; x + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[y * 8 + x + dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x + dst, y);
-                    }
+
+                if (to_mask & white_mask) {
+                    valid_plays[valid_plays_i].promotion_option = 0;
+                    valid_plays[valid_plays_i].from_x = from_x;
+                    valid_plays[valid_plays_i].from_y = from_y;
+                    valid_plays[valid_plays_i].to_x = x;
+                    valid_plays[valid_plays_i].to_y = y;
+                    valid_plays_i++;
                     break;
                 }
-                for (char dst = 1; y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x, y - dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x, y + dst);
-                    }
-                    break;
-                }
-                if (piece == 'r') {
-                    continue;
-                }
-            }
-            if (piece == 'b' || piece == 'q') {
-                for (char dst = 1; x - dst >= 0 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x - dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x - dst, y - dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; x + dst <= 7 && y - dst >= 0; dst++) {
-                    int piece_color = determine_color(board->b[(y - dst) * 8 + x + dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x + dst, y - dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; x - dst >= 0 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x - dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x - dst, y + dst);
-                    }
-                    break;
-                }
-                for (char dst = 1; x + dst <= 7 && y + dst <= 7; dst++) {
-                    int piece_color = determine_color(board->b[(y + dst) * 8 + x + dst]);
-                    if (piece_color == NO_COLOR) {
-                        continue;
-                    }
-                    if (piece_color == WHITE_COLOR) {
-                        QUEUE_PLAY(x + dst, y + dst);
-                    }
-                    break;
-                }
-                continue;
-            }
-            if (piece == 'k') {
-                if (x - 1 >= 0) {
-                    if (determine_color(board->b[y * 8 + x - 1]) == WHITE_COLOR) {
-                        QUEUE_PLAY(x - 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x - 1]) == WHITE_COLOR) {
-                        QUEUE_PLAY(x - 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x - 1]) == WHITE_COLOR) {
-                        QUEUE_PLAY(x - 1, y + 1);
-                    }
-                }
-                if (x + 1 <= 7) {
-                    if (determine_color(board->b[y * 8 + x + 1]) == WHITE_COLOR) {
-                        QUEUE_PLAY(x + 1, y);
-                    }
-                    if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x + 1]) == WHITE_COLOR) {
-                        QUEUE_PLAY(x + 1, y - 1);
-                    }
-                    if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x + 1]) == WHITE_COLOR) {
-                        QUEUE_PLAY(x + 1, y + 1);
-                    }
-                }
-                if (y - 1 >= 0 && determine_color(board->b[(y - 1) * 8 + x]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x, y - 1);
-                }
-                if (y + 1 <= 7 && determine_color(board->b[(y + 1) * 8 + x]) == WHITE_COLOR) {
-                    QUEUE_PLAY(x, y + 1);
-                }
+
+                x += dx;
+                y += dy;
             }
         }
+
+        moves &= moves - 1;
+    }
+
+    // Bishops and queens
+    moves = board->black_bishops | board->black_queens;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+        int from_x = from % 8;
+        int from_y = from / 8;
+
+        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
+        for (int d = 0; d < 4; d++) {
+            int dx = directions[d][0];
+            int dy = directions[d][1];
+            int x = from_x + dx;
+            int y = from_y + dy;
+
+            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+                int to = y * 8 + x;
+                uint64_t to_mask = 1ULL << to;
+
+                if (to_mask & black_mask) {
+                    break;
+                }
+
+                if (to_mask & white_mask) {
+                    valid_plays[valid_plays_i].promotion_option = 0;
+                    valid_plays[valid_plays_i].from_x = from_x;
+                    valid_plays[valid_plays_i].from_y = from_y;
+                    valid_plays[valid_plays_i].to_x = x;
+                    valid_plays[valid_plays_i].to_y = y;
+                    valid_plays_i++;
+                    break;
+                }
+
+                x += dx;
+                y += dy;
+            }
+        }
+
+        moves &= moves - 1;
     }
 
     return valid_plays_i;
@@ -1324,6 +1676,8 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
         just_play(&board_cpy, &valid_plays_local[i], 0);
+
+        // reset_board_bitmaps(&board_cpy);
 
         int cpy_valid_plays_i = board_cpy.color == WHITE_COLOR ? enumerate_possible_capture_plays_white(cpy_valid_plays, &board_cpy) : enumerate_possible_capture_plays_black(cpy_valid_plays, &board_cpy);
 
@@ -1456,6 +1810,8 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
 #endif
         return initial_score;
     }
+
+    // reset_board_bitmaps(board);
 
     board_t board_cpy;
     play_t valid_plays[128];
@@ -1606,6 +1962,8 @@ static int ai_play(play_t * play) {
     play_t valid_plays[128];
     int alpha = -2147483644;
     int beta = 2147483644;
+
+    reset_board_bitmaps(&board);
 
     int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
     if (valid_plays_i == 0) {
@@ -1991,6 +2349,10 @@ static void show_help() {
 }
 
 int main(int argc, char * argv[]) {
+    populate_pawn_capture_masks();
+    populate_knight_moves_masks();
+    populate_king_moves_masks();
+
 #if ENABLE_TRANSPOTION_DETECTION
     populate_zobrist_masks();
     hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
