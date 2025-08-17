@@ -8,15 +8,25 @@
 #define PROGRAM_VERSION "1.0"
 
 typedef struct {
-    char b[64];
-    char en_passant_x;
+    uint64_t white_pawns;
+    uint64_t black_pawns;
+    uint64_t white_knights;
+    uint64_t black_knights;
+    uint64_t white_bishops;
+    uint64_t black_bishops;
+    uint64_t white_rooks;
+    uint64_t black_rooks;
+    uint64_t white_queens;
+    uint64_t black_queens;
+    uint64_t white_kings;
+    uint64_t black_kings;
     char white_left_castling;
     char white_right_castling;
     char black_left_castling;
     char black_right_castling;
-    unsigned char halfmoves;
-    unsigned char fullmoves;
     char color;
+    char en_passant_x;
+    unsigned char halfmoves;
 } board_t;
 
 typedef struct {
@@ -32,7 +42,6 @@ typedef struct {
     int score_w_type;
 } hash_table_entry_t;
 
-#define ENABLE_TRANSPOTION_DETECTION 1
 #define MAX_SEARCH_DEPTH 5
 #define HASH_TABLE_SIZE 8388608
 
@@ -51,8 +60,8 @@ typedef struct {
 #define PROMOTION_BISHOP 3
 #define PROMOTION_ROOK 4
 
-void fen_to_board(board_t * board, const char * fen_str);
-void board_to_fen(char * fen_str, const board_t * board);
+void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_str);
+void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves);
 void board_to_short_string(char * str, const board_t * board);
 
 #endif

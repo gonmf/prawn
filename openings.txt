@@ -1,0 +1,21 @@
+| e2e4 d2d4 g1f3 c2c4 g2g3
+
+# B00 King's Pawn Opening
+e2e4 | c7c5 e7e6 c7c6 d7d6 g7g6
+e2e4 c7c5 | e4d5
+e2e4 e7e6 | g1f3 b1c3
+e2e4 c7c6 | d2d4 b1c3 g1f3 c2c4 d2d3
+e2e4 d7d6 | d2d4 b1c3 g1f3
+e2e4 g7g6 | d2d4 b1c3 g1f3
+
+# A40 Queen's Pawn Opening
+d2d4 | g8f6 e7e6 d7d6 g7g6
+
+# A04 Réti Opening
+g1f3 | d7d5 c7c5
+
+# A10 English Opening
+c2c4 | e7e5 e7e6 c7c5 g7g6
+
+# A00 King's Fianchetto Opening
+g2g3 | d7d5 e7e5
