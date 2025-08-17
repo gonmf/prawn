@@ -1182,13 +1182,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = white_pawn_capture_masks[from] & black_mask;
-        while (moves_to) {
-            int to = __builtin_ctzll(moves_to);
-
-            attacked |= 1ULL << to;
-
-            moves_to &= moves_to - 1;
-        }
+        attacked |= moves_to;
 
         moves &= moves - 1;
     }
@@ -1199,13 +1193,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = knight_moves_masks[from] & black_mask;
-        while (moves_to) {
-            int to = __builtin_ctzll(moves_to);
-
-            attacked |= 1ULL << to;
-
-            moves_to &= moves_to - 1;
-        }
+        attacked |= moves_to;
 
         moves &= moves - 1;
     }
@@ -1233,7 +1221,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
                 }
 
                 if (to_mask & black_mask) {
-                    attacked |= 1ULL << (y * 8 + x);
+                    attacked |= to_mask;
                     break;
                 }
 
@@ -1268,7 +1256,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
                 }
 
                 if (to_mask & black_mask) {
-                    attacked |= 1ULL << (y * 8 + x);
+                    attacked |= to_mask;
                     break;
                 }
 
@@ -1295,13 +1283,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = black_pawn_capture_masks[from] & white_mask;
-        while (moves_to) {
-            int to = __builtin_ctzll(moves_to);
-
-            attacked |= 1ULL << to;
-
-            moves_to &= moves_to - 1;
-        }
+        attacked |= moves_to;
 
         moves &= moves - 1;
     }
@@ -1312,13 +1294,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = knight_moves_masks[from] & white_mask;
-        while (moves_to) {
-            int to = __builtin_ctzll(moves_to);
-
-            attacked |= 1ULL << to;
-
-            moves_to &= moves_to - 1;
-        }
+        attacked |= moves_to;
 
         moves &= moves - 1;
     }
@@ -1346,7 +1322,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
                 }
 
                 if (to_mask & white_mask) {
-                    attacked |= 1ULL << (y * 8 + x);
+                    attacked |= to_mask;
                     break;
                 }
 
@@ -1381,7 +1357,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
                 }
 
                 if (to_mask & white_mask) {
-                    attacked |= 1ULL << (y * 8 + x);
+                    attacked |= to_mask;
                     break;
                 }
 
@@ -1424,23 +1400,11 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
                 int to_x = valid_plays_local[i].to_x;
 
                 if (to_x == 6) {
-                    if (attacked & (1ULL << (from_y * 8 + 4))) {
-                        continue;
-                    }
-                    if (attacked & (1ULL << (from_y * 8 + 5))) {
-                        continue;
-                    }
-                    if (attacked & (1ULL << (from_y * 8 + 6))) {
+                    if (attacked & (7ULL << (from_y * 8 + 4))) {
                         continue;
                     }
                 } else if (to_x == 2) {
-                    if (attacked & (1ULL << (from_y * 8 + 2))) {
-                        continue;
-                    }
-                    if (attacked & (1ULL << (from_y * 8 + 3))) {
-                        continue;
-                    }
-                    if (attacked & (1ULL << (from_y * 8 + 4))) {
+                    if (attacked & (7ULL << (from_y * 8 + 2))) {
                         continue;
                     }
                 }
