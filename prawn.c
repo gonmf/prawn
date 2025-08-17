@@ -1170,30 +1170,22 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
     return valid_plays_i;
 }
 
-static int enumerate_possible_capture_plays_white(play_t * valid_plays, const board_t * board) {
+// Ignores en passant
+static uint64_t mask_attacked_positions_by_white(const board_t * board) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
-
-    int valid_plays_i = 0;
+    uint64_t attacked = 0;
 
     // Pawn captures
     uint64_t moves = board->white_pawns;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
 
         uint64_t moves_to = white_pawn_capture_masks[from] & black_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
-            int to_x = to % 8;
-            int to_y = to / 8;
 
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
+            attacked |= 1ULL << to;
 
             moves_to &= moves_to - 1;
         }
@@ -1201,44 +1193,16 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
         moves &= moves - 1;
     }
 
-    // Pawn captures via en passant
-    if (board->en_passant_x != NO_EN_PASSANT) {
-        moves = white_en_passant_capture_masks[(int)board->en_passant_x] & board->white_pawns;
-        while (moves) {
-            int from = __builtin_ctzll(moves);
-            int from_x = from % 8;
-            int from_y = from / 8;
-            int to_x = board->en_passant_x;
-            int to_y = 2;
-
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
-
-            moves &= moves - 1;
-        }
-    }
-
     // Knight captures
     moves = board->white_knights;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
 
         uint64_t moves_to = knight_moves_masks[from] & black_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
-            int to_x = to % 8;
-            int to_y = to / 8;
 
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
+            attacked |= 1ULL << to;
 
             moves_to &= moves_to - 1;
         }
@@ -1250,20 +1214,12 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
     moves = board->white_kings;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
 
         uint64_t moves_to = king_moves_masks[from] & black_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
-            int to_x = to % 8;
-            int to_y = to / 8;
 
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
+            attacked |= 1ULL << to;
 
             moves_to &= moves_to - 1;
         }
@@ -1294,11 +1250,7 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & black_mask) {
-                    valid_plays[valid_plays_i].from_x = from_x;
-                    valid_plays[valid_plays_i].from_y = from_y;
-                    valid_plays[valid_plays_i].to_x = x;
-                    valid_plays[valid_plays_i].to_y = y;
-                    valid_plays_i++;
+                    attacked |= 1ULL << (y * 8 + x);
                     break;
                 }
 
@@ -1333,11 +1285,7 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & black_mask) {
-                    valid_plays[valid_plays_i].from_x = from_x;
-                    valid_plays[valid_plays_i].from_y = from_y;
-                    valid_plays[valid_plays_i].to_x = x;
-                    valid_plays[valid_plays_i].to_y = y;
-                    valid_plays_i++;
+                    attacked |= 1ULL << (y * 8 + x);
                     break;
                 }
 
@@ -1349,33 +1297,25 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
         moves &= moves - 1;
     }
 
-    return valid_plays_i;
+    return attacked;
 }
 
-static int enumerate_possible_capture_plays_black(play_t * valid_plays, const board_t * board) {
+// Ignores en passant
+static uint64_t mask_attacked_positions_by_black(const board_t * board) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
-
-    int valid_plays_i = 0;
+    uint64_t attacked = 0;
 
     // Pawn captures
     uint64_t moves = board->black_pawns;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
 
         uint64_t moves_to = black_pawn_capture_masks[from] & white_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
-            int to_x = to % 8;
-            int to_y = to / 8;
 
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
+            attacked |= 1ULL << to;
 
             moves_to &= moves_to - 1;
         }
@@ -1383,44 +1323,16 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
         moves &= moves - 1;
     }
 
-    // Pawn captures via en passant
-    if (board->en_passant_x != NO_EN_PASSANT) {
-        moves = black_en_passant_capture_masks[(int)board->en_passant_x] & board->black_pawns;
-        while (moves) {
-            int from = __builtin_ctzll(moves);
-            int from_x = from % 8;
-            int from_y = from / 8;
-            int to_x = board->en_passant_x;
-            int to_y = 2;
-
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
-
-            moves &= moves - 1;
-        }
-    }
-
     // Knight captures
     moves = board->black_knights;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
 
         uint64_t moves_to = knight_moves_masks[from] & white_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
-            int to_x = to % 8;
-            int to_y = to / 8;
 
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
+            attacked |= 1ULL << to;
 
             moves_to &= moves_to - 1;
         }
@@ -1432,20 +1344,12 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
     moves = board->black_kings;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
 
         uint64_t moves_to = king_moves_masks[from] & white_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
-            int to_x = to % 8;
-            int to_y = to / 8;
 
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i = valid_plays_i + 1;
+            attacked |= 1ULL << to;
 
             moves_to &= moves_to - 1;
         }
@@ -1476,11 +1380,7 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & white_mask) {
-                    valid_plays[valid_plays_i].from_x = from_x;
-                    valid_plays[valid_plays_i].from_y = from_y;
-                    valid_plays[valid_plays_i].to_x = x;
-                    valid_plays[valid_plays_i].to_y = y;
-                    valid_plays_i++;
+                    attacked |= 1ULL << (y * 8 + x);
                     break;
                 }
 
@@ -1515,11 +1415,7 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & white_mask) {
-                    valid_plays[valid_plays_i].from_x = from_x;
-                    valid_plays[valid_plays_i].from_y = from_y;
-                    valid_plays[valid_plays_i].to_x = x;
-                    valid_plays[valid_plays_i].to_y = y;
-                    valid_plays_i++;
+                    attacked |= 1ULL << (y * 8 + x);
                     break;
                 }
 
@@ -1531,7 +1427,7 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
         moves &= moves - 1;
     }
 
-    return valid_plays_i;
+    return attacked;
 }
 
 static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
@@ -1542,63 +1438,43 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
     char castling_possible = board->color == WHITE_COLOR ? board->white_left_castling || board->white_right_castling : board->black_left_castling || board->black_right_castling;
 
     board_t board_cpy;
-    play_t cpy_valid_plays[128];
 
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
         just_play(&board_cpy, &valid_plays_local[i], 0);
 
-        int cpy_valid_plays_i = board_cpy.color == WHITE_COLOR ? enumerate_possible_capture_plays_white(cpy_valid_plays, &board_cpy) : enumerate_possible_capture_plays_black(cpy_valid_plays, &board_cpy);
-
+        uint64_t attacked = board_cpy.color == WHITE_COLOR ? mask_attacked_positions_by_white(&board_cpy) : mask_attacked_positions_by_black(&board_cpy);
         uint64_t king_mask = board->color == WHITE_COLOR ? board_cpy.white_kings : board_cpy.black_kings;
-
-        int play_is_valid = 1;
-        for (int j = 0; j < cpy_valid_plays_i; ++j) {
-            char x = cpy_valid_plays[j].to_x;
-            char y = cpy_valid_plays[j].to_y;
-
-            uint64_t bit = 1ULL << ((y * 8) + x);
-            if (king_mask & bit) {
-                play_is_valid = 0;
-                break;
-            }
-        }
-        // Same but crossing empty space when castling
-        if (!play_is_valid) {
+        if (attacked & king_mask) {
             continue;
         }
 
         if (castling_possible) {
             int from_x = valid_plays_local[i].from_x;
             int from_y = valid_plays_local[i].from_y;
-            int to_x = valid_plays_local[i].to_x;
             char piece = identify_piece(board, from_y * 8 + from_x);
             if (piece == king_piece && from_x == 4) {
-                if (to_x == 6) {
-                    for (int j = 0; j < cpy_valid_plays_i; ++j) {
-                        char x = cpy_valid_plays[j].to_x;
-                        char y = cpy_valid_plays[j].to_y;
+                int to_x = valid_plays_local[i].to_x;
 
-                        if (x == 5 && y == from_y) {
-                            play_is_valid = 0;
-                            break;
-                        }
+                if (to_x == 6) {
+                    if (attacked & (1ULL << (from_y * 8 + 4))) {
+                        continue;
                     }
-                    if (!play_is_valid) {
+                    if (attacked & (1ULL << (from_y * 8 + 5))) {
+                        continue;
+                    }
+                    if (attacked & (1ULL << (from_y * 8 + 6))) {
                         continue;
                     }
                 } else if (to_x == 2) {
-                    for (int j = 0; j < cpy_valid_plays_i; ++j) {
-                        char x = cpy_valid_plays[j].to_x;
-                        char y = cpy_valid_plays[j].to_y;
-
-                        if (x == 3 && y == from_y) {
-                            play_is_valid = 0;
-                            break;
-                        }
+                    if (attacked & (1ULL << (from_y * 8 + 2))) {
+                        continue;
                     }
-                    if (!play_is_valid) {
+                    if (attacked & (1ULL << (from_y * 8 + 3))) {
+                        continue;
+                    }
+                    if (attacked & (1ULL << (from_y * 8 + 4))) {
                         continue;
                     }
                 }
@@ -1613,8 +1489,7 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
 }
 
 static int king_threatened(board_t * board) {
-    char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
-    play_t valid_plays[128];
+    uint64_t king_mask = board->color == WHITE_COLOR ? board->white_kings : board->black_kings;
 
     char en_passant_x = board->en_passant_x;
     char white_left_castling = board->white_left_castling;
@@ -1629,7 +1504,7 @@ static int king_threatened(board_t * board) {
     board->black_right_castling = 0;
     board->color = opposite_color(board->color);
 
-    int valid_plays_i = board->color == WHITE_COLOR ? enumerate_possible_capture_plays_white(valid_plays, board) : enumerate_possible_capture_plays_black(valid_plays, board);
+    uint64_t attacked = board->color == WHITE_COLOR ? mask_attacked_positions_by_white(board) : mask_attacked_positions_by_black(board);
 
     board->en_passant_x = en_passant_x;
     board->white_left_castling = white_left_castling;
@@ -1638,16 +1513,7 @@ static int king_threatened(board_t * board) {
     board->black_right_castling = black_right_castling;
     board->color = opposite_color(board->color);
 
-    for (int i = 0; i < valid_plays_i; ++i) {
-        char x = valid_plays[i].to_x;
-        char y = valid_plays[i].to_y;
-
-        if (identify_piece(board, y * 8 + x) == king_piece) {
-            return 1;
-        }
-    }
-
-    return 0;
+    return attacked & king_mask;
 }
 
 static int minimax(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
