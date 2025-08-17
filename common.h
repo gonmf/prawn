@@ -8,15 +8,6 @@
 #define PROGRAM_VERSION "1.0"
 
 typedef struct {
-    char b[64];
-    char en_passant_x;
-    char white_left_castling;
-    char white_right_castling;
-    char black_left_castling;
-    char black_right_castling;
-    unsigned char halfmoves;
-    unsigned char fullmoves;
-    char color;
     uint64_t white_pawns;
     uint64_t black_pawns;
     uint64_t white_knights;
@@ -29,6 +20,13 @@ typedef struct {
     uint64_t black_queens;
     uint64_t white_kings;
     uint64_t black_kings;
+    char white_left_castling;
+    char white_right_castling;
+    char black_left_castling;
+    char black_right_castling;
+    char color;
+    char en_passant_x;
+    unsigned char halfmoves;
 } board_t;
 
 typedef struct {
