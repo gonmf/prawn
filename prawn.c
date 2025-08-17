@@ -39,6 +39,7 @@ static void populate_pawn_capture_masks() {
 
     for (int p = 0; p < 64; ++p) {
         white_pawn_capture_masks[p] = 0ULL;
+        black_pawn_capture_masks[p] = 0ULL;
 
         int x = p % 8;
         int y = p / 8;
@@ -54,13 +55,6 @@ static void populate_pawn_capture_masks() {
         if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
             white_pawn_capture_masks[p] |= (1ULL << (y2 * 8 + x2));
         }
-    }
-
-    for (int p = 0; p < 64; ++p) {
-        black_pawn_capture_masks[p] = 0ULL;
-
-        int x = p % 8;
-        int y = p / 8;
 
         x2 = x - 1;
         y2 = y + 1;
@@ -77,6 +71,7 @@ static void populate_pawn_capture_masks() {
 
     for (int x = 0; x < 8; ++x) {
         white_en_passant_capture_masks[x] = 0ULL;
+        black_en_passant_capture_masks[x] = 0ULL;
 
         int y = 2;
 
@@ -91,12 +86,8 @@ static void populate_pawn_capture_masks() {
         if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
             white_en_passant_capture_masks[x] |= (1ULL << (y2 * 8 + x2));
         }
-    }
 
-    for (int x = 0; x < 8; ++x) {
-        black_en_passant_capture_masks[x] = 0ULL;
-
-        int y = 5;
+        y = 5;
 
         x2 = x - 1;
         y2 = y - 1;
@@ -238,42 +229,18 @@ static int64_t update_hash_with_piece(int64_t hash, int pos, char piece) {
 static char identify_piece(const board_t * board, int p) {
     uint64_t mask = (1ULL << p);
 
-    if (board->white_pawns & mask) {
-        return 'P';
-    }
-    if (board->black_pawns & mask) {
-        return 'p';
-    }
-    if (board->white_knights & mask) {
-        return 'N';
-    }
-    if (board->black_knights & mask) {
-        return 'n';
-    }
-    if (board->white_bishops & mask) {
-        return 'B';
-    }
-    if (board->black_bishops & mask) {
-        return 'b';
-    }
-    if (board->white_rooks & mask) {
-        return 'R';
-    }
-    if (board->black_rooks & mask) {
-        return 'r';
-    }
-    if (board->white_queens & mask) {
-        return 'Q';
-    }
-    if (board->black_queens & mask) {
-        return 'q';
-    }
-    if (board->white_kings & mask) {
-        return 'K';
-    }
-    if (board->black_kings & mask) {
-        return 'k';
-    }
+    if (board->white_pawns & mask)   return 'P';
+    if (board->black_pawns & mask)   return 'p';
+    if (board->white_knights & mask) return 'N';
+    if (board->black_knights & mask) return 'n';
+    if (board->white_bishops & mask) return 'B';
+    if (board->black_bishops & mask) return 'b';
+    if (board->white_rooks & mask)   return 'R';
+    if (board->black_rooks & mask)   return 'r';
+    if (board->white_queens & mask)  return 'Q';
+    if (board->black_queens & mask)  return 'q';
+    if (board->white_kings & mask)   return 'K';
+    if (board->black_kings & mask)   return 'k';
     return ' ';
 }
 
@@ -442,33 +409,33 @@ static int just_play(board_t * board, const play_t * play, int score) {
 
     // Remove captured piece, at destination
     switch (to_piece) {
-        case 'P': board->white_pawns ^= to_mask; break;
-        case 'p': board->black_pawns ^= to_mask; break;
+        case 'P': board->white_pawns ^= to_mask;   break;
+        case 'p': board->black_pawns ^= to_mask;   break;
         case 'N': board->white_knights ^= to_mask; break;
         case 'n': board->black_knights ^= to_mask; break;
         case 'B': board->white_bishops ^= to_mask; break;
         case 'b': board->black_bishops ^= to_mask; break;
-        case 'R': board->white_rooks ^= to_mask; break;
-        case 'r': board->black_rooks ^= to_mask; break;
-        case 'Q': board->white_queens ^= to_mask; break;
-        case 'q': board->black_queens ^= to_mask; break;
-        case 'K': board->white_kings ^= to_mask; break;
-        case 'k': board->black_kings ^= to_mask; break;
+        case 'R': board->white_rooks ^= to_mask;   break;
+        case 'r': board->black_rooks ^= to_mask;   break;
+        case 'Q': board->white_queens ^= to_mask;  break;
+        case 'q': board->black_queens ^= to_mask;  break;
+        case 'K': board->white_kings ^= to_mask;   break;
+        case 'k': board->black_kings ^= to_mask;   break;
     }
     // Remove moved piece from origin
     switch (from_piece) {
-        case 'P': board->white_pawns ^= from_mask; break;
-        case 'p': board->black_pawns ^= from_mask; break;
+        case 'P': board->white_pawns ^= from_mask;   break;
+        case 'p': board->black_pawns ^= from_mask;   break;
         case 'N': board->white_knights ^= from_mask; break;
         case 'n': board->black_knights ^= from_mask; break;
         case 'B': board->white_bishops ^= from_mask; break;
         case 'b': board->black_bishops ^= from_mask; break;
-        case 'R': board->white_rooks ^= from_mask; break;
-        case 'r': board->black_rooks ^= from_mask; break;
-        case 'Q': board->white_queens ^= from_mask; break;
-        case 'q': board->black_queens ^= from_mask; break;
-        case 'K': board->white_kings ^= from_mask; break;
-        case 'k': board->black_kings ^= from_mask; break;
+        case 'R': board->white_rooks ^= from_mask;   break;
+        case 'r': board->black_rooks ^= from_mask;   break;
+        case 'Q': board->white_queens ^= from_mask;  break;
+        case 'q': board->black_queens ^= from_mask;  break;
+        case 'K': board->white_kings ^= from_mask;   break;
+        case 'k': board->black_kings ^= from_mask;   break;
     }
     // Add moved piece to destination
     switch (from_piece) {
@@ -478,54 +445,32 @@ static int just_play(board_t * board, const play_t * play, int score) {
             } else {
                 if (board->color == WHITE_COLOR) {
                     switch (promotion_option) {
-                        case PROMOTION_QUEEN: board->white_queens ^= to_mask; break;
+                        case PROMOTION_QUEEN: board->white_queens ^= to_mask;   break;
                         case PROMOTION_KNIGHT: board->white_knights ^= to_mask; break;
                         case PROMOTION_BISHOP: board->white_bishops ^= to_mask; break;
-                        case PROMOTION_ROOK: board->white_rooks ^= to_mask; break;
+                        case PROMOTION_ROOK: board->white_rooks ^= to_mask;     break;
                     }
                 } else {
                     switch (promotion_option) {
-                        case PROMOTION_QUEEN: board->black_queens ^= to_mask; break;
+                        case PROMOTION_QUEEN: board->black_queens ^= to_mask;   break;
                         case PROMOTION_KNIGHT: board->black_knights ^= to_mask; break;
                         case PROMOTION_BISHOP: board->black_bishops ^= to_mask; break;
-                        case PROMOTION_ROOK: board->black_rooks ^= to_mask; break;
+                        case PROMOTION_ROOK: board->black_rooks ^= to_mask;     break;
                     }
                 }
             }
             break;
-        case 'p':
-            board->black_pawns ^= to_mask;
-            break;
-        case 'N':
-            board->white_knights ^= to_mask;
-            break;
-        case 'n':
-            board->black_knights ^= to_mask;
-            break;
-        case 'B':
-            board->white_bishops ^= to_mask;
-            break;
-        case 'b':
-            board->black_bishops ^= to_mask;
-            break;
-        case 'R':
-            board->white_rooks ^= to_mask;
-            break;
-        case 'r':
-            board->black_rooks ^= to_mask;
-            break;
-        case 'Q':
-            board->white_queens ^= to_mask;
-            break;
-        case 'q':
-            board->black_queens ^= to_mask;
-            break;
-        case 'K':
-            board->white_kings ^= to_mask;
-            break;
-        case 'k':
-            board->black_kings ^= to_mask;
-            break;
+        case 'p': board->black_pawns ^= to_mask;   break;
+        case 'N': board->white_knights ^= to_mask; break;
+        case 'n': board->black_knights ^= to_mask; break;
+        case 'B': board->white_bishops ^= to_mask; break;
+        case 'b': board->black_bishops ^= to_mask; break;
+        case 'R': board->white_rooks ^= to_mask;   break;
+        case 'r': board->black_rooks ^= to_mask;   break;
+        case 'Q': board->white_queens ^= to_mask;  break;
+        case 'q': board->black_queens ^= to_mask;  break;
+        case 'K': board->white_kings ^= to_mask;   break;
+        case 'k': board->black_kings ^= to_mask;   break;
     }
 
     switch (to_piece) {
