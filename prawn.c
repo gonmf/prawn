@@ -1170,7 +1170,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
     return valid_plays_i;
 }
 
-// Ignores en passant
+// Ignores en passant and king captures
 static uint64_t mask_attacked_positions_by_white(const board_t * board) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
@@ -1199,23 +1199,6 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = knight_moves_masks[from] & black_mask;
-        while (moves_to) {
-            int to = __builtin_ctzll(moves_to);
-
-            attacked |= 1ULL << to;
-
-            moves_to &= moves_to - 1;
-        }
-
-        moves &= moves - 1;
-    }
-
-    // King captures
-    moves = board->white_kings;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-
-        uint64_t moves_to = king_moves_masks[from] & black_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
 
@@ -1300,7 +1283,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
     return attacked;
 }
 
-// Ignores en passant
+// Ignores en passant and king captures
 static uint64_t mask_attacked_positions_by_black(const board_t * board) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
@@ -1329,23 +1312,6 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = knight_moves_masks[from] & white_mask;
-        while (moves_to) {
-            int to = __builtin_ctzll(moves_to);
-
-            attacked |= 1ULL << to;
-
-            moves_to &= moves_to - 1;
-        }
-
-        moves &= moves - 1;
-    }
-
-    // King captures
-    moves = board->black_kings;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-
-        uint64_t moves_to = king_moves_masks[from] & white_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
 
