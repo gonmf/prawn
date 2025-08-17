@@ -1687,6 +1687,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
 
     board_t board_cpy;
     play_t valid_plays[128];
+    char captures[128];
 
     int valid_plays_i = enumerate_legal_plays(valid_plays, board);
     if (valid_plays_i == 0) {
@@ -1713,8 +1714,8 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
     int breakfor = 0;
 
     for (int i = 0; i < valid_plays_i; ++i) {
-        int is_capture = identify_piece(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) != ' ';
-        if (!is_capture) {
+        captures[i] = identify_piece(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) != ' ';
+        if (!captures[i]) {
             continue;
         }
 
@@ -1752,8 +1753,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
 
     if (!breakfor) {
         for (int i = 0; i < valid_plays_i; ++i) {
-            int is_capture = identify_piece(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) != ' ';
-            if (is_capture) {
+            if (captures[i]) {
                 continue;
             }
 
