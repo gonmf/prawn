@@ -1,11 +1,18 @@
 #include "common.h"
 
-void fen_to_board(board_t * board, const char * fen_str) {
-    for (int y = 0; y < 8; ++y) {
-        for (int x = 0; x < 8; ++x) {
-            board->b[y * 8 + x] = ' ';
-        }
-    }
+void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_str) {
+    board->white_pawns = 0;
+    board->black_pawns = 0;
+    board->white_knights = 0;
+    board->black_knights = 0;
+    board->white_bishops = 0;
+    board->black_bishops = 0;
+    board->white_rooks = 0;
+    board->black_rooks = 0;
+    board->white_queens = 0;
+    board->black_queens = 0;
+    board->white_kings = 0;
+    board->black_kings = 0;
 
     int fen_str_i = 0;
 
@@ -14,7 +21,22 @@ void fen_to_board(board_t * board, const char * fen_str) {
             if (fen_str[fen_str_i] >= '1' && fen_str[fen_str_i] <= '8') {
                 x += fen_str[fen_str_i] - '1';
             } else {
-                board->b[y * 8 + x] = fen_str[fen_str_i];
+                uint64_t bit = 1ULL << (y * 8 + x);
+
+                switch (fen_str[fen_str_i]) {
+                    case 'P': board->white_pawns   |= bit; break;
+                    case 'p': board->black_pawns   |= bit; break;
+                    case 'N': board->white_knights |= bit; break;
+                    case 'n': board->black_knights |= bit; break;
+                    case 'B': board->white_bishops |= bit; break;
+                    case 'b': board->black_bishops |= bit; break;
+                    case 'R': board->white_rooks   |= bit; break;
+                    case 'r': board->black_rooks   |= bit; break;
+                    case 'Q': board->white_queens  |= bit; break;
+                    case 'q': board->black_queens  |= bit; break;
+                    case 'K': board->white_kings   |= bit; break;
+                    case 'k': board->black_kings   |= bit; break;
+                }
             }
             fen_str_i++;
         }
@@ -69,28 +91,59 @@ void fen_to_board(board_t * board, const char * fen_str) {
 
     fen_str_i++;
 
-    board->fullmoves = 0;
+    *fullmoves = 0;
     while (fen_str[fen_str_i] >= '0' && fen_str[fen_str_i] <= '9') {
-        board->fullmoves = board->fullmoves * 10 + (fen_str[fen_str_i] - '0');
+        *fullmoves = *fullmoves * 10 + (fen_str[fen_str_i] - '0');
         fen_str_i++;
     }
 }
 
-void board_to_fen(char * fen_str, const board_t * board) {
+void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves) {
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t empty_mask = ~(white_mask | black_mask);
+
     int fen_str_i = 0;
 
     for (int y = 0; y < 8; ++y) {
         int blank = 0;
 
         for (int x = 0; x < 8; ++x) {
-            if (board->b[y * 8 + x] == ' ') {
+            uint64_t bit = 1ULL << (y * 8 + x);
+
+            if (empty_mask & bit) {
                 blank++;
             } else {
                 if (blank > 0) {
                     fen_str[fen_str_i++] = '0' + blank;
                     blank = 0;
                 }
-                fen_str[fen_str_i++] = board->b[y * 8 + x];
+
+                if (board->white_pawns & bit) {
+                    fen_str[fen_str_i++] = 'P';
+                } else if (board->black_pawns & bit) {
+                    fen_str[fen_str_i++] = 'p';
+                } else if (board->white_bishops & bit) {
+                    fen_str[fen_str_i++] = 'B';
+                } else if (board->black_bishops & bit) {
+                    fen_str[fen_str_i++] = 'b';
+                } else if (board->white_knights & bit) {
+                    fen_str[fen_str_i++] = 'N';
+                } else if (board->black_knights & bit) {
+                    fen_str[fen_str_i++] = 'n';
+                } else if (board->white_rooks & bit) {
+                    fen_str[fen_str_i++] = 'R';
+                } else if (board->black_rooks & bit) {
+                    fen_str[fen_str_i++] = 'r';
+                } else if (board->white_queens & bit) {
+                    fen_str[fen_str_i++] = 'Q';
+                } else if (board->black_queens & bit) {
+                    fen_str[fen_str_i++] = 'q';
+                } else if (board->white_kings & bit) {
+                    fen_str[fen_str_i++] = 'K';
+                } else if (board->black_kings & bit) {
+                    fen_str[fen_str_i++] = 'k';
+                }
             }
         }
 
@@ -147,23 +200,54 @@ void board_to_fen(char * fen_str, const board_t * board) {
 
     fen_str[fen_str_i++] = ' ';
 
-    fen_str_i += sprintf(fen_str + fen_str_i, "%d", board->fullmoves);
+    fen_str_i += sprintf(fen_str + fen_str_i, "%d", fullmoves);
 }
 
 // maximum output string length seen: 52
 void board_to_short_string(char * str, const board_t * board) {
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t empty_mask = ~(white_mask | black_mask);
+
     int idx = 0;
     int blank = 0;
 
     for (int p = 0; p < 64; ++p) {
-        if (board->b[p] == ' ') {
+        uint64_t bit = 1ULL << p;
+
+        if (empty_mask & bit) {
             blank++;
         } else {
             if (blank > 0) {
                 str[idx++] = ' ' + blank;
                 blank = 0;
             }
-            str[idx++] = board->b[p];
+
+            if (board->white_pawns & bit) {
+                str[idx++] = 'P';
+            } else if (board->black_pawns & bit) {
+                str[idx++] = 'p';
+            } else if (board->white_bishops & bit) {
+                str[idx++] = 'B';
+            } else if (board->black_bishops & bit) {
+                str[idx++] = 'b';
+            } else if (board->white_knights & bit) {
+                str[idx++] = 'N';
+            } else if (board->black_knights & bit) {
+                str[idx++] = 'n';
+            } else if (board->white_rooks & bit) {
+                str[idx++] = 'R';
+            } else if (board->black_rooks & bit) {
+                str[idx++] = 'r';
+            } else if (board->white_queens & bit) {
+                str[idx++] = 'Q';
+            } else if (board->black_queens & bit) {
+                str[idx++] = 'q';
+            } else if (board->white_kings & bit) {
+                str[idx++] = 'K';
+            } else if (board->black_kings & bit) {
+                str[idx++] = 'k';
+            }
         }
     }
 

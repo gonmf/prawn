@@ -8,6 +8,7 @@ static char buffer[1024];
 static char past_positions[256][56];
 static unsigned char past_plays_count;
 static board_t board;
+static unsigned int fullmoves;
 static char last_play_x = -1;
 static char last_play_y = -1;
 
@@ -18,13 +19,6 @@ static char last_play_y = -1;
 
 #define MAX(A,B) ((A) > (B) ? (A) : (B))
 #define MIN(A,B) ((A) < (B) ? (A) : (B))
-
-#define QUEUE_PLAY(TO_X, TO_Y) \
-    valid_plays[valid_plays_i].from_x = x; \
-    valid_plays[valid_plays_i].from_y = y; \
-    valid_plays[valid_plays_i].to_x = (TO_X); \
-    valid_plays[valid_plays_i].to_y = (TO_Y); \
-    valid_plays_i = valid_plays_i + 1;
 
 static uint64_t white_pawn_capture_masks[64];
 static uint64_t black_pawn_capture_masks[64];
@@ -119,117 +113,42 @@ static void populate_pawn_capture_masks() {
 }
 
 static void populate_knight_moves_masks() {
-    int x2, y2;
+    const int offsets[8][2] = {
+        {-1, -2}, {+1, -2}, {-2, -1}, {+2, -1},
+        {-2, +1}, {+2, +1}, {-1, +2}, {+1, +2}
+    };
 
     for (int p = 0; p < 64; ++p) {
+        int x = p % 8, y = p / 8;
         knight_moves_masks[p] = 0ULL;
 
-        int x = p % 8;
-        int y = p / 8;
-
-        x2 = x - 1;
-        y2 = y - 2;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x - 1;
-        y2 = y + 2;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 1;
-        y2 = y + 2;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 1;
-        y2 = y - 2;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x - 2;
-        y2 = y - 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x - 2;
-        y2 = y + 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 2;
-        y2 = y + 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 2;
-        y2 = y - 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        for (int i = 0; i < 8; i++) {
+            int x2 = x + offsets[i][0];
+            int y2 = y + offsets[i][1];
+            if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+                knight_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+            }
         }
     }
 }
 
 static void populate_king_moves_masks() {
+    const int offsets[8][2] = {
+        {-1, -1}, {0, -1}, {+1, -1},
+        {-1,  0},          {+1,  0},
+        {-1, +1}, {0, +1}, {+1, +1}
+    };
+
     for (int p = 0; p < 64; ++p) {
+        int x = p % 8, y = p / 8;
         king_moves_masks[p] = 0ULL;
 
-        int x = p % 8;
-        int y = p / 8;
-
-        int x2 = x - 1;
-        int y2 = y - 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x - 1;
-        y2 = y;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x - 1;
-        y2 = y + 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x;
-        y2 = y - 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x;
-        y2 = y + 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 1;
-        y2 = y - 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 1;
-        y2 = y;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
-        }
-
-        x2 = x + 1;
-        y2 = y + 1;
-        if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
-            king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+        for (int i = 0; i < 8; i++) {
+            int x2 = x + offsets[i][0];
+            int y2 = y + offsets[i][1];
+            if (x2 >= 0 && x2 < 8 && y2 >= 0 && y2 < 8) {
+                king_moves_masks[p] |= (1ULL << (y2 * 8 + x2));
+            }
         }
     }
 }
@@ -264,40 +183,6 @@ static void hash_table_insert(int64_t hash, int score_w_type) {
         }
 
         ++i;
-    }
-}
-
-static void reset_board_bitmaps(board_t * board) {
-    board->white_pawns = 0;
-    board->black_pawns = 0;
-    board->white_knights = 0;
-    board->black_knights = 0;
-    board->white_bishops = 0;
-    board->black_bishops = 0;
-    board->white_rooks = 0;
-    board->black_rooks = 0;
-    board->white_queens = 0;
-    board->black_queens = 0;
-    board->white_kings = 0;
-    board->black_kings = 0;
-
-    for (int p = 0; p < 64; ++p) {
-        uint64_t bit = 1ULL << p;
-
-        switch (board->b[p]) {
-            case 'P': board->white_pawns   |= bit; break;
-            case 'p': board->black_pawns   |= bit; break;
-            case 'N': board->white_knights |= bit; break;
-            case 'n': board->black_knights |= bit; break;
-            case 'B': board->white_bishops |= bit; break;
-            case 'b': board->black_bishops |= bit; break;
-            case 'R': board->white_rooks   |= bit; break;
-            case 'r': board->black_rooks   |= bit; break;
-            case 'Q': board->white_queens  |= bit; break;
-            case 'q': board->black_queens  |= bit; break;
-            case 'K': board->white_kings   |= bit; break;
-            case 'k': board->black_kings   |= bit; break;
-        }
     }
 }
 
@@ -480,7 +365,7 @@ static int64_t hash_from_board(const board_t * board, int depth) {
     int64_t hash = 0xAAAAAAAAAAAAAAAA;
 
     for (int p = 0; p < 64; ++p) {
-        char piece = board->b[p];
+        char piece = identify_piece(board, p);
         if (piece != ' ') {
             hash = update_hash_with_piece(hash, p, piece);
         }
@@ -509,16 +394,16 @@ static int64_t hash_from_board(const board_t * board, int depth) {
 }
 
 static void print_board(const board_t * board) {
-    board_to_fen(buffer, board);
+    board_to_fen(buffer, board, fullmoves);
     printf("%s\n", buffer);
     printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
         printf("║ ");
         for (int x = 0; x < 8; x++) {
             if (x == last_play_x && y == last_play_y) {
-                printf("\033[32m%c\e[0m", board->b[y * 8 + x]);
+                printf("\033[32m%c\e[0m", identify_piece(board, y * 8 + x));
             } else {
-                printf("%c", board->b[y * 8 + x]);
+                printf("%c", identify_piece(board, y * 8 + x));
             }
             if (x < 7) {
                 printf(" │ ");
@@ -552,68 +437,95 @@ static int just_play(board_t * board, const play_t * play, int score) {
     char from_piece = identify_piece(board, from_p);
     char to_piece = identify_piece(board, to_p);
 
+    uint64_t from_mask = 1ULL << from_p;
+    uint64_t to_mask = 1ULL << to_p;
+
     // Remove captured piece, at destination
     switch (to_piece) {
-        case 'P': board->white_pawns ^= (1ULL << to_p); break;
-        case 'p': board->black_pawns ^= (1ULL << to_p); break;
-        case 'N': board->white_knights ^= (1ULL << to_p); break;
-        case 'n': board->black_knights ^= (1ULL << to_p); break;
-        case 'B': board->white_bishops ^= (1ULL << to_p); break;
-        case 'b': board->black_bishops ^= (1ULL << to_p); break;
-        case 'R': board->white_rooks ^= (1ULL << to_p); break;
-        case 'r': board->black_rooks ^= (1ULL << to_p); break;
-        case 'Q': board->white_queens ^= (1ULL << to_p); break;
-        case 'q': board->black_queens ^= (1ULL << to_p); break;
-        case 'K': board->white_kings ^= (1ULL << to_p); break;
-        case 'k': board->black_kings ^= (1ULL << to_p); break;
+        case 'P': board->white_pawns ^= to_mask; break;
+        case 'p': board->black_pawns ^= to_mask; break;
+        case 'N': board->white_knights ^= to_mask; break;
+        case 'n': board->black_knights ^= to_mask; break;
+        case 'B': board->white_bishops ^= to_mask; break;
+        case 'b': board->black_bishops ^= to_mask; break;
+        case 'R': board->white_rooks ^= to_mask; break;
+        case 'r': board->black_rooks ^= to_mask; break;
+        case 'Q': board->white_queens ^= to_mask; break;
+        case 'q': board->black_queens ^= to_mask; break;
+        case 'K': board->white_kings ^= to_mask; break;
+        case 'k': board->black_kings ^= to_mask; break;
     }
     // Remove moved piece from origin
     switch (from_piece) {
-        case 'P': board->white_pawns ^= (1ULL << from_p); break;
-        case 'p': board->black_pawns ^= (1ULL << from_p); break;
-        case 'N': board->white_knights ^= (1ULL << from_p); break;
-        case 'n': board->black_knights ^= (1ULL << from_p); break;
-        case 'B': board->white_bishops ^= (1ULL << from_p); break;
-        case 'b': board->black_bishops ^= (1ULL << from_p); break;
-        case 'R': board->white_rooks ^= (1ULL << from_p); break;
-        case 'r': board->black_rooks ^= (1ULL << from_p); break;
-        case 'Q': board->white_queens ^= (1ULL << from_p); break;
-        case 'q': board->black_queens ^= (1ULL << from_p); break;
-        case 'K': board->white_kings ^= (1ULL << from_p); break;
-        case 'k': board->black_kings ^= (1ULL << from_p); break;
+        case 'P': board->white_pawns ^= from_mask; break;
+        case 'p': board->black_pawns ^= from_mask; break;
+        case 'N': board->white_knights ^= from_mask; break;
+        case 'n': board->black_knights ^= from_mask; break;
+        case 'B': board->white_bishops ^= from_mask; break;
+        case 'b': board->black_bishops ^= from_mask; break;
+        case 'R': board->white_rooks ^= from_mask; break;
+        case 'r': board->black_rooks ^= from_mask; break;
+        case 'Q': board->white_queens ^= from_mask; break;
+        case 'q': board->black_queens ^= from_mask; break;
+        case 'K': board->white_kings ^= from_mask; break;
+        case 'k': board->black_kings ^= from_mask; break;
     }
     // Add moved piece to destination
-    if (promotion_option == 0) {
-        switch (from_piece) {
-            case 'P': board->white_pawns ^= (1ULL << to_p); break;
-            case 'p': board->black_pawns ^= (1ULL << to_p); break;
-            case 'N': board->white_knights ^= (1ULL << to_p); break;
-            case 'n': board->black_knights ^= (1ULL << to_p); break;
-            case 'B': board->white_bishops ^= (1ULL << to_p); break;
-            case 'b': board->black_bishops ^= (1ULL << to_p); break;
-            case 'R': board->white_rooks ^= (1ULL << to_p); break;
-            case 'r': board->black_rooks ^= (1ULL << to_p); break;
-            case 'Q': board->white_queens ^= (1ULL << to_p); break;
-            case 'q': board->black_queens ^= (1ULL << to_p); break;
-            case 'K': board->white_kings ^= (1ULL << to_p); break;
-            case 'k': board->black_kings ^= (1ULL << to_p); break;
-        }
-    } else {
-        if (board->color == WHITE_COLOR) {
-            switch (promotion_option) {
-                case PROMOTION_QUEEN: board->white_queens ^= (1ULL << to_p); break;
-                case PROMOTION_KNIGHT: board->white_knights ^= (1ULL << to_p); break;
-                case PROMOTION_BISHOP: board->white_bishops ^= (1ULL << to_p); break;
-                case PROMOTION_ROOK: board->white_rooks ^= (1ULL << to_p); break;
+    switch (from_piece) {
+        case 'P':
+            if (promotion_option == 0) {
+                board->white_pawns ^= to_mask;
+            } else {
+                if (board->color == WHITE_COLOR) {
+                    switch (promotion_option) {
+                        case PROMOTION_QUEEN: board->white_queens ^= to_mask; break;
+                        case PROMOTION_KNIGHT: board->white_knights ^= to_mask; break;
+                        case PROMOTION_BISHOP: board->white_bishops ^= to_mask; break;
+                        case PROMOTION_ROOK: board->white_rooks ^= to_mask; break;
+                    }
+                } else {
+                    switch (promotion_option) {
+                        case PROMOTION_QUEEN: board->black_queens ^= to_mask; break;
+                        case PROMOTION_KNIGHT: board->black_knights ^= to_mask; break;
+                        case PROMOTION_BISHOP: board->black_bishops ^= to_mask; break;
+                        case PROMOTION_ROOK: board->black_rooks ^= to_mask; break;
+                    }
+                }
             }
-        } else {
-            switch (promotion_option) {
-                case PROMOTION_QUEEN: board->black_queens ^= (1ULL << to_p); break;
-                case PROMOTION_KNIGHT: board->black_knights ^= (1ULL << to_p); break;
-                case PROMOTION_BISHOP: board->black_bishops ^= (1ULL << to_p); break;
-                case PROMOTION_ROOK: board->black_rooks ^= (1ULL << to_p); break;
-            }
-        }
+            break;
+        case 'p':
+            board->black_pawns ^= to_mask;
+            break;
+        case 'N':
+            board->white_knights ^= to_mask;
+            break;
+        case 'n':
+            board->black_knights ^= to_mask;
+            break;
+        case 'B':
+            board->white_bishops ^= to_mask;
+            break;
+        case 'b':
+            board->black_bishops ^= to_mask;
+            break;
+        case 'R':
+            board->white_rooks ^= to_mask;
+            break;
+        case 'r':
+            board->black_rooks ^= to_mask;
+            break;
+        case 'Q':
+            board->white_queens ^= to_mask;
+            break;
+        case 'q':
+            board->black_queens ^= to_mask;
+            break;
+        case 'K':
+            board->white_kings ^= to_mask;
+            break;
+        case 'k':
+            board->black_kings ^= to_mask;
+            break;
     }
 
     switch (to_piece) {
@@ -633,11 +545,9 @@ static int just_play(board_t * board, const play_t * play, int score) {
         if (board->en_passant_x == to_x) {
             if (from_y == 3 && from_piece == 'P') {
                 board->black_pawns ^= (1ULL << (from_y * 8 + to_x));
-                board->b[from_y * 8 + to_x] = ' ';
                 score += 1 * PIECE_SCORE_MULTIPLIER;
             } else if (from_y == 4 && from_piece == 'p') {
                 board->white_pawns ^= (1ULL << (from_y * 8 + to_x));
-                board->b[from_y * 8 + to_x] = ' ';
                 score -= 1 * PIECE_SCORE_MULTIPLIER;
             }
         }
@@ -646,32 +556,24 @@ static int just_play(board_t * board, const play_t * play, int score) {
 
     if (from_piece == 'K') {
         if (from_y == to_y) {
-            if (board->white_right_castling && from_x + 2 == to_x && identify_piece(board, from_y * 8 + from_x + 1) == ' ' && identify_piece(board, from_y * 8 + from_x + 2) == ' ') {
+            if (board->white_right_castling && from_x + 2 == to_x) {
                 board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
-                board->b[to_y * 8 + to_x - 1] = 'R';
                 board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = ' ';
-            } else if (board->white_left_castling && from_x - 2 == to_x && identify_piece(board, from_y * 8 + from_x - 1) == ' ' && identify_piece(board, from_y * 8 + from_x - 2) == ' ' && identify_piece(board, from_y * 8 + from_x - 3) == ' ') {
+            } else if (board->white_left_castling && from_x - 2 == to_x) {
                 board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
-                board->b[to_y * 8 + to_x - 2] = ' ';
                 board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = 'R';
             }
         }
         board->white_right_castling = 0;
         board->white_left_castling = 0;
     } else if (from_piece == 'k') {
         if (from_y == to_y) {
-            if (board->black_right_castling && from_x + 2 == to_x && identify_piece(board, from_y * 8 + from_x + 1) == ' ' && identify_piece(board, from_y * 8 + from_x + 2) == ' ') {
+            if (board->black_right_castling && from_x + 2 == to_x) {
                 board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
-                board->b[to_y * 8 + to_x - 1] = 'r';
                 board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = ' ';
-            } else if (board->black_left_castling && from_x - 2 == to_x && identify_piece(board, from_y * 8 + from_x - 1) == ' ' && identify_piece(board, from_y * 8 + from_x - 2) == ' ' && identify_piece(board, from_y * 8 + from_x - 3) == ' ') {
+            } else if (board->black_left_castling && from_x - 2 == to_x) {
                 board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
-                board->b[to_y * 8 + to_x - 2] = ' ';
                 board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = 'r';
             }
         }
         board->black_right_castling = 0;
@@ -691,19 +593,15 @@ static int just_play(board_t * board, const play_t * play, int score) {
     if (from_piece == 'P') {
         if (to_y == 0) {
             if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_p] = 'Q';
                 // 1 to 9
                 score += 8 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_p] = 'N';
                 // 1 to 3
                 score += 2 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_p] = 'B';
                 // 1 to 3
                 score += 2 * PIECE_SCORE_MULTIPLIER;
             } else {
-                board->b[to_p] = 'R';
                 // 1 to 5
                 score += 4 * PIECE_SCORE_MULTIPLIER;
             }
@@ -711,24 +609,19 @@ static int just_play(board_t * board, const play_t * play, int score) {
             if (from_y == 6 && to_y == 4) {
                 board->en_passant_x = from_x;
             }
-            board->b[to_p] = from_piece;
         }
     } else if (from_piece == 'p') {
         if (to_y == 7) {
             if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_p] = 'q';
                 // 1 to 9
                 score -= 8 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_p] = 'n';
                 // 1 to 3
                 score -= 2 * PIECE_SCORE_MULTIPLIER;
             } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_p] = 'b';
                 // 1 to 3
                 score -= 2 * PIECE_SCORE_MULTIPLIER;
             } else {
-                board->b[to_p] = 'r';
                 // 1 to 5
                 score -= 4 * PIECE_SCORE_MULTIPLIER;
             }
@@ -736,220 +629,8 @@ static int just_play(board_t * board, const play_t * play, int score) {
             if (from_y == 1 && to_y == 3) {
                 board->en_passant_x = from_x;
             }
-            board->b[to_p] = from_piece;
-        }
-    } else {
-        board->b[to_p] = from_piece;
-    }
-    board->b[from_p] = ' ';
-    board->color = opposite_color(board->color);
-
-    return score;
-}
-
-static int just_play_binary(board_t * board, const play_t * play, int score) {
-    char from_x = play->from_x;
-    char from_y = play->from_y;
-    char to_x = play->to_x;
-    char to_y = play->to_y;
-    char promotion_option = play->promotion_option;
-
-    int from_p = from_y * 8 + from_x;
-    int to_p = to_y * 8 + to_x;
-
-    char from_piece = identify_piece(board, from_p);
-    char to_piece = identify_piece(board, to_p);
-
-    // Remove captured piece, at destination
-    switch (to_piece) {
-        case 'P': board->white_pawns ^= (1ULL << to_p); break;
-        case 'p': board->black_pawns ^= (1ULL << to_p); break;
-        case 'N': board->white_knights ^= (1ULL << to_p); break;
-        case 'n': board->black_knights ^= (1ULL << to_p); break;
-        case 'B': board->white_bishops ^= (1ULL << to_p); break;
-        case 'b': board->black_bishops ^= (1ULL << to_p); break;
-        case 'R': board->white_rooks ^= (1ULL << to_p); break;
-        case 'r': board->black_rooks ^= (1ULL << to_p); break;
-        case 'Q': board->white_queens ^= (1ULL << to_p); break;
-        case 'q': board->black_queens ^= (1ULL << to_p); break;
-        case 'K': board->white_kings ^= (1ULL << to_p); break;
-        case 'k': board->black_kings ^= (1ULL << to_p); break;
-    }
-    // Remove moved piece from origin
-    switch (from_piece) {
-        case 'P': board->white_pawns ^= (1ULL << from_p); break;
-        case 'p': board->black_pawns ^= (1ULL << from_p); break;
-        case 'N': board->white_knights ^= (1ULL << from_p); break;
-        case 'n': board->black_knights ^= (1ULL << from_p); break;
-        case 'B': board->white_bishops ^= (1ULL << from_p); break;
-        case 'b': board->black_bishops ^= (1ULL << from_p); break;
-        case 'R': board->white_rooks ^= (1ULL << from_p); break;
-        case 'r': board->black_rooks ^= (1ULL << from_p); break;
-        case 'Q': board->white_queens ^= (1ULL << from_p); break;
-        case 'q': board->black_queens ^= (1ULL << from_p); break;
-        case 'K': board->white_kings ^= (1ULL << from_p); break;
-        case 'k': board->black_kings ^= (1ULL << from_p); break;
-    }
-    // Add moved piece to destination
-    if (promotion_option == 0) {
-        switch (from_piece) {
-            case 'P': board->white_pawns ^= (1ULL << to_p); break;
-            case 'p': board->black_pawns ^= (1ULL << to_p); break;
-            case 'N': board->white_knights ^= (1ULL << to_p); break;
-            case 'n': board->black_knights ^= (1ULL << to_p); break;
-            case 'B': board->white_bishops ^= (1ULL << to_p); break;
-            case 'b': board->black_bishops ^= (1ULL << to_p); break;
-            case 'R': board->white_rooks ^= (1ULL << to_p); break;
-            case 'r': board->black_rooks ^= (1ULL << to_p); break;
-            case 'Q': board->white_queens ^= (1ULL << to_p); break;
-            case 'q': board->black_queens ^= (1ULL << to_p); break;
-            case 'K': board->white_kings ^= (1ULL << to_p); break;
-            case 'k': board->black_kings ^= (1ULL << to_p); break;
-        }
-    } else {
-        if (board->color == WHITE_COLOR) {
-            switch (promotion_option) {
-                case PROMOTION_QUEEN: board->white_queens ^= (1ULL << to_p); break;
-                case PROMOTION_KNIGHT: board->white_knights ^= (1ULL << to_p); break;
-                case PROMOTION_BISHOP: board->white_bishops ^= (1ULL << to_p); break;
-                case PROMOTION_ROOK: board->white_rooks ^= (1ULL << to_p); break;
-            }
-        } else {
-            switch (promotion_option) {
-                case PROMOTION_QUEEN: board->black_queens ^= (1ULL << to_p); break;
-                case PROMOTION_KNIGHT: board->black_knights ^= (1ULL << to_p); break;
-                case PROMOTION_BISHOP: board->black_bishops ^= (1ULL << to_p); break;
-                case PROMOTION_ROOK: board->black_rooks ^= (1ULL << to_p); break;
-            }
         }
     }
-
-    switch (to_piece) {
-        case 'P': score -= 1 * PIECE_SCORE_MULTIPLIER; break;
-        case 'p': score += 1 * PIECE_SCORE_MULTIPLIER; break;
-        case 'N': score -= 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'n': score += 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'B': score -= 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'b': score += 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'R': score -= 5 * PIECE_SCORE_MULTIPLIER; break;
-        case 'r': score += 5 * PIECE_SCORE_MULTIPLIER; break;
-        case 'Q': score -= 9 * PIECE_SCORE_MULTIPLIER; break;
-        case 'q': score += 9 * PIECE_SCORE_MULTIPLIER; break;
-    }
-
-    if (board->en_passant_x != NO_EN_PASSANT) {
-        if (board->en_passant_x == to_x) {
-            if (from_y == 3 && from_piece == 'P') {
-                board->black_pawns ^= (1ULL << (from_y * 8 + to_x));
-                board->b[from_y * 8 + to_x] = ' ';
-                score += 1 * PIECE_SCORE_MULTIPLIER;
-            } else if (from_y == 4 && from_piece == 'p') {
-                board->white_pawns ^= (1ULL << (from_y * 8 + to_x));
-                board->b[from_y * 8 + to_x] = ' ';
-                score -= 1 * PIECE_SCORE_MULTIPLIER;
-            }
-        }
-        board->en_passant_x = NO_EN_PASSANT;
-    }
-
-    if (from_piece == 'K') {
-        if (from_y == to_y) {
-            if (board->white_right_castling && from_x + 2 == to_x && identify_piece(board, from_y * 8 + from_x + 1) == ' ' && identify_piece(board, from_y * 8 + from_x + 2) == ' ') {
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
-                board->b[to_y * 8 + to_x - 1] = 'R';
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = ' ';
-            } else if (board->white_left_castling && from_x - 2 == to_x && identify_piece(board, from_y * 8 + from_x - 1) == ' ' && identify_piece(board, from_y * 8 + from_x - 2) == ' ' && identify_piece(board, from_y * 8 + from_x - 3) == ' ') {
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
-                board->b[to_y * 8 + to_x - 2] = ' ';
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = 'R';
-            }
-        }
-        board->white_right_castling = 0;
-        board->white_left_castling = 0;
-    } else if (from_piece == 'k') {
-        if (from_y == to_y) {
-            if (board->black_right_castling && from_x + 2 == to_x && identify_piece(board, from_y * 8 + from_x + 1) == ' ' && identify_piece(board, from_y * 8 + from_x + 2) == ' ') {
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
-                board->b[to_y * 8 + to_x - 1] = 'r';
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = ' ';
-            } else if (board->black_left_castling && from_x - 2 == to_x && identify_piece(board, from_y * 8 + from_x - 1) == ' ' && identify_piece(board, from_y * 8 + from_x - 2) == ' ' && identify_piece(board, from_y * 8 + from_x - 3) == ' ') {
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
-                board->b[to_y * 8 + to_x - 2] = ' ';
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-                board->b[to_y * 8 + to_x + 1] = 'r';
-            }
-        }
-        board->black_right_castling = 0;
-        board->black_left_castling = 0;
-    }
-
-    if ((from_x == 0 && from_y == 7) || (to_x == 0 && to_y == 7)) {
-        board->white_left_castling = 0;
-    } else if ((from_x == 7 && from_y == 7) || (to_x == 7 && to_y == 7)) {
-        board->white_right_castling = 0;
-    } else if ((from_x == 0 && from_y == 0) || (to_x == 0 && to_y == 0)) {
-        board->black_left_castling = 0;
-    } else if ((from_x == 7 && from_y == 0) || (to_x == 7 && to_y == 0)) {
-        board->black_right_castling = 0;
-    }
-
-    if (from_piece == 'P') {
-        if (to_y == 0) {
-            if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_p] = 'Q';
-                // 1 to 9
-                score += 8 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_p] = 'N';
-                // 1 to 3
-                score += 2 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_p] = 'B';
-                // 1 to 3
-                score += 2 * PIECE_SCORE_MULTIPLIER;
-            } else {
-                board->b[to_p] = 'R';
-                // 1 to 5
-                score += 4 * PIECE_SCORE_MULTIPLIER;
-            }
-        } else {
-            if (from_y == 6 && to_y == 4) {
-                board->en_passant_x = from_x;
-            }
-            board->b[to_p] = from_piece;
-        }
-    } else if (from_piece == 'p') {
-        if (to_y == 7) {
-            if (promotion_option == PROMOTION_QUEEN) {
-                board->b[to_p] = 'q';
-                // 1 to 9
-                score -= 8 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_KNIGHT) {
-                board->b[to_p] = 'n';
-                // 1 to 3
-                score -= 2 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_BISHOP) {
-                board->b[to_p] = 'b';
-                // 1 to 3
-                score -= 2 * PIECE_SCORE_MULTIPLIER;
-            } else {
-                board->b[to_p] = 'r';
-                // 1 to 5
-                score -= 4 * PIECE_SCORE_MULTIPLIER;
-            }
-        } else {
-            if (from_y == 1 && to_y == 3) {
-                board->en_passant_x = from_x;
-            }
-            board->b[to_p] = from_piece;
-        }
-    } else {
-        board->b[to_p] = from_piece;
-    }
-    board->b[from_p] = ' ';
     board->color = opposite_color(board->color);
 
     return score;
@@ -958,8 +639,8 @@ static int just_play_binary(board_t * board, const play_t * play, int score) {
 static void actual_play(const play_t * play) {
     board_to_short_string(past_positions[past_plays_count++], &board);
 
-    char moving_piece = board.b[play->from_y * 8 + play->from_x];
-    if (moving_piece == 'P' || moving_piece == 'p' || board.b[play->to_y * 8 + play->to_x] != ' ') {
+    char moving_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
+    if (moving_piece == 'P' || moving_piece == 'p' || identify_piece(&board, play->to_y * 8 + play->to_x) != ' ') {
         board.halfmoves = 0;
     } else {
         board.halfmoves++;
@@ -968,7 +649,7 @@ static void actual_play(const play_t * play) {
     last_play_x = play->to_x;
     last_play_y = play->to_y;
     if (board.color == BLACK_COLOR) {
-        board.fullmoves++;
+        fullmoves++;
     }
 
     just_play(&board, play, 0);
@@ -1139,7 +820,6 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
-            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1165,7 +845,6 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
-            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1200,7 +879,6 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                     break;
                 }
 
-                valid_plays[valid_plays_i].promotion_option = 0;
                 valid_plays[valid_plays_i].from_x = from_x;
                 valid_plays[valid_plays_i].from_y = from_y;
                 valid_plays[valid_plays_i].to_x = x;
@@ -1241,7 +919,6 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                     break;
                 }
 
-                valid_plays[valid_plays_i].promotion_option = 0;
                 valid_plays[valid_plays_i].from_x = from_x;
                 valid_plays[valid_plays_i].from_y = from_y;
                 valid_plays[valid_plays_i].to_x = x;
@@ -1428,7 +1105,6 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
-            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1454,7 +1130,6 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
-            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1489,7 +1164,6 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                     break;
                 }
 
-                valid_plays[valid_plays_i].promotion_option = 0;
                 valid_plays[valid_plays_i].from_x = from_x;
                 valid_plays[valid_plays_i].from_y = from_y;
                 valid_plays[valid_plays_i].to_x = x;
@@ -1530,7 +1204,6 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                     break;
                 }
 
-                valid_plays[valid_plays_i].promotion_option = 0;
                 valid_plays[valid_plays_i].from_x = from_x;
                 valid_plays[valid_plays_i].from_y = from_y;
                 valid_plays[valid_plays_i].to_x = x;
@@ -1676,7 +1349,6 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & black_mask) {
-                    valid_plays[valid_plays_i].promotion_option = 0;
                     valid_plays[valid_plays_i].from_x = from_x;
                     valid_plays[valid_plays_i].from_y = from_y;
                     valid_plays[valid_plays_i].to_x = x;
@@ -1716,7 +1388,6 @@ static int enumerate_possible_capture_plays_white(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & black_mask) {
-                    valid_plays[valid_plays_i].promotion_option = 0;
                     valid_plays[valid_plays_i].from_x = from_x;
                     valid_plays[valid_plays_i].from_y = from_y;
                     valid_plays[valid_plays_i].to_x = x;
@@ -1860,7 +1531,6 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & white_mask) {
-                    valid_plays[valid_plays_i].promotion_option = 0;
                     valid_plays[valid_plays_i].from_x = from_x;
                     valid_plays[valid_plays_i].from_y = from_y;
                     valid_plays[valid_plays_i].to_x = x;
@@ -1900,7 +1570,6 @@ static int enumerate_possible_capture_plays_black(play_t * valid_plays, const bo
                 }
 
                 if (to_mask & white_mask) {
-                    valid_plays[valid_plays_i].promotion_option = 0;
                     valid_plays[valid_plays_i].from_x = from_x;
                     valid_plays[valid_plays_i].from_y = from_y;
                     valid_plays[valid_plays_i].to_x = x;
@@ -1925,27 +1594,37 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
     play_t valid_plays_local[128];
     int valid_plays_local_i = board->color == WHITE_COLOR ? enumerate_all_possible_plays_white(valid_plays_local, board) : enumerate_all_possible_plays_black(valid_plays_local, board);
     char king_piece = board->color == WHITE_COLOR ? 'K' : 'k';
+    char castling_possible = board->color == WHITE_COLOR ? board->white_left_castling || board->white_right_castling : board->black_left_castling || board->black_right_castling;
 
     board_t board_cpy;
     play_t cpy_valid_plays[128];
 
+    // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
         just_play(&board_cpy, &valid_plays_local[i], 0);
 
         int cpy_valid_plays_i = board_cpy.color == WHITE_COLOR ? enumerate_possible_capture_plays_white(cpy_valid_plays, &board_cpy) : enumerate_possible_capture_plays_black(cpy_valid_plays, &board_cpy);
 
+        uint64_t king_mask = board->color == WHITE_COLOR ? board_cpy.white_kings : board_cpy.black_kings;
+
         int play_is_valid = 1;
         for (int j = 0; j < cpy_valid_plays_i; ++j) {
             char x = cpy_valid_plays[j].to_x;
             char y = cpy_valid_plays[j].to_y;
 
-            if (board_cpy.b[y * 8 + x] == king_piece) {
+            uint64_t bit = 1ULL << ((y * 8) + x);
+            if (king_mask & bit) {
                 play_is_valid = 0;
                 break;
             }
         }
-        if (play_is_valid) {
+        // Same but crossing empty space when castling
+        if (!play_is_valid) {
+            continue;
+        }
+
+        if (castling_possible) {
             int from_x = valid_plays_local[i].from_x;
             int from_y = valid_plays_local[i].from_y;
             int to_x = valid_plays_local[i].to_x;
@@ -1979,10 +1658,10 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
                     }
                 }
             }
-
-            valid_plays[valid_plays_i] = valid_plays_local[i];
-            valid_plays_i++;
         }
+
+        valid_plays[valid_plays_i] = valid_plays_local[i];
+        valid_plays_i++;
     }
 
     return valid_plays_i;
@@ -2097,7 +1776,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = update_hash_before_play(hash, board, &valid_plays[i], depth);
 
-        int score = just_play_binary(&board_cpy, &valid_plays[i], initial_score);
+        int score = just_play(&board_cpy, &valid_plays[i], initial_score);
         int score_extra = board->color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
         this_hash = update_hash_after_play(this_hash, &board_cpy, &valid_plays[i], depth + 1);
 
@@ -2136,7 +1815,7 @@ static int minimax(board_t * board, int depth, int alpha, int beta, int initial_
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = update_hash_before_play(hash, board, &valid_plays[i], depth);
 
-            int score = just_play_binary(&board_cpy, &valid_plays[i], initial_score);
+            int score = just_play(&board_cpy, &valid_plays[i], initial_score);
             int score_extra = board->color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
             this_hash = update_hash_after_play(this_hash, &board_cpy, &valid_plays[i], depth + 1);
 
@@ -2186,8 +1865,6 @@ static int ai_play(play_t * play) {
     play_t valid_plays[128];
     int alpha = -2147483644;
     int beta = 2147483644;
-
-    reset_board_bitmaps(&board);
 
     int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
     if (valid_plays_i == 0) {
@@ -2353,7 +2030,7 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
                 }
             }
             if (play_is_valid) {
-                char from_piece = board.b[play->from_y * 8 + play->from_x];
+                char from_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
                 play->promotion_option = 0;
                 if (play->from_y == 1 && play->to_y == 0 && from_piece == 'P') {
                     play->promotion_option = input_promotion_piece();
@@ -2371,7 +2048,40 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
 }
 
 static void reset_board() {
-    memcpy(board.b, "rnbqkbnrpppppppp                                PPPPPPPPRNBQKBNR", 64);
+    const char * pieces = "rnbqkbnrpppppppp                                PPPPPPPPRNBQKBNR";
+
+    board.white_pawns = 0;
+    board.black_pawns = 0;
+    board.white_knights = 0;
+    board.black_knights = 0;
+    board.white_bishops = 0;
+    board.black_bishops = 0;
+    board.white_rooks = 0;
+    board.black_rooks = 0;
+    board.white_queens = 0;
+    board.black_queens = 0;
+    board.white_kings = 0;
+    board.black_kings = 0;
+
+    for (int p = 0; p < 64; ++p) {
+        uint64_t bit = 1ULL << p;
+
+        switch (pieces[p]) {
+            case 'P': board.white_pawns   |= bit; break;
+            case 'p': board.black_pawns   |= bit; break;
+            case 'N': board.white_knights |= bit; break;
+            case 'n': board.black_knights |= bit; break;
+            case 'B': board.white_bishops |= bit; break;
+            case 'b': board.black_bishops |= bit; break;
+            case 'R': board.white_rooks   |= bit; break;
+            case 'r': board.black_rooks   |= bit; break;
+            case 'Q': board.white_queens  |= bit; break;
+            case 'q': board.black_queens  |= bit; break;
+            case 'K': board.white_kings   |= bit; break;
+            case 'k': board.black_kings   |= bit; break;
+        }
+    }
+
     board.en_passant_x = NO_EN_PASSANT;
     board.white_left_castling = 1;
     board.white_right_castling = 1;
@@ -2379,7 +2089,7 @@ static void reset_board() {
     board.black_right_castling = 1;
     board.color = WHITE_COLOR;
     board.halfmoves = 0;
-    board.fullmoves = 0;
+    fullmoves = 0;
     past_plays_count = 0;
 }
 
@@ -2507,7 +2217,7 @@ static void uci_mode() {
             } else {
                 str = strstr(buffer, " fen ");
                 if (str) {
-                    fen_to_board(&board, str + strlen(" fen "));
+                    fen_to_board(&board, &fullmoves, str + strlen(" fen "));
                 }
             }
 
@@ -2539,16 +2249,18 @@ static void uci_mode() {
                 continue;
             }
 
-            if (play.promotion_option == PROMOTION_QUEEN) {
-                sprintf(buffer, "bestmove %c%d%c%dq", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
-            } else if (play.promotion_option == PROMOTION_KNIGHT) {
-                sprintf(buffer, "bestmove %c%d%c%dn", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
-            } else if (play.promotion_option == PROMOTION_BISHOP) {
-                sprintf(buffer, "bestmove %c%d%c%db", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
-            } else if (play.promotion_option == PROMOTION_ROOK) {
-                sprintf(buffer, "bestmove %c%d%c%dr", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
-            } else {
-                sprintf(buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            char * b = buffer + sprintf(buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
+            char piece = identify_piece(&board, play.from_y * 8 + play.from_x);
+            if (piece == 'P' && piece == 'p') {
+                if (play.promotion_option == PROMOTION_QUEEN) {
+                    sprintf(b, "q");
+                } else if (play.promotion_option == PROMOTION_KNIGHT) {
+                    sprintf(b, "n");
+                } else if (play.promotion_option == PROMOTION_BISHOP) {
+                    sprintf(b, "b");
+                } else if (play.promotion_option == PROMOTION_ROOK) {
+                    sprintf(b, "r");
+                }
             }
             send_uci_command(fd, buffer);
             continue;
