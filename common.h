@@ -7,18 +7,6 @@
 
 #define PROGRAM_VERSION "1.0"
 
-// typedef struct {
-//     char b[64];
-//     char en_passant_x;
-//     char white_left_castling;
-//     char white_right_castling;
-//     char black_left_castling;
-//     char black_right_castling;
-//     unsigned char halfmoves;
-//     unsigned char fullmoves;
-//     char color;
-// } simple_board_t;
-
 typedef struct {
     char b[64];
     char en_passant_x;
@@ -56,7 +44,6 @@ typedef struct {
     int score_w_type;
 } hash_table_entry_t;
 
-#define ENABLE_TRANSPOTION_DETECTION 1
 #define MAX_SEARCH_DEPTH 5
 #define HASH_TABLE_SIZE 8388608
 
