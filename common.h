@@ -62,6 +62,11 @@ typedef struct {
 #define PROMOTION_BISHOP 3
 #define PROMOTION_ROOK 4
 
+#define CASTLING_WHITE_RIGHT 0
+#define CASTLING_WHITE_LEFT 1
+#define CASTLING_BLACK_RIGHT 2
+#define CASTLING_BLACK_LEFT 3
+
 void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_str);
 void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves);
 void board_to_short_string(char * str, const board_t * board);

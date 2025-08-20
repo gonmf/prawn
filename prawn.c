@@ -290,134 +290,6 @@ static char identify_piece_black(const board_t * board, int p) {
     return ' ';
 }
 
-static int64_t update_hash_before_play_white(int64_t hash, const board_t * board, const play_t * play, int depth) {
-    int from_x = play->from_x;
-    int from_y = play->from_y;
-    int to_x = play->to_x;
-    int to_y = play->to_y;
-    int en_passant_x = board->en_passant_x;
-    int from_p = from_y * 8 + from_x;
-    int to_p = to_y * 8 + to_x;
-
-    char piece = identify_piece_white(board, from_p);
-    char to_piece = identify_piece_black(board, to_p);
-
-    hash = update_hash_with_piece_white(hash, from_p, piece);
-    if (to_piece != ' ') {
-        hash = update_hash_with_piece_black(hash, to_p, to_piece);
-    }
-
-    if (en_passant_x != NO_EN_PASSANT) {
-        hash ^= zobrist_en_passant[en_passant_x];
-
-        if (piece == 'P' && from_y == 3 && to_x == en_passant_x) {
-            hash = update_hash_with_piece_black(hash, from_y * 8 + en_passant_x, 'p');
-        }
-    }
-
-    if (from_x == 4 && piece == 'K') {
-        if (to_x == 6) {
-            hash = update_hash_with_piece_white(hash, 7 * 8 + 7, 'R');
-            hash = update_hash_with_piece_white(hash, 7 * 8 + 5, 'R');
-            hash ^= zobrist_castling[0];
-            if (board->white_left_castling) {
-                hash ^= zobrist_castling[1];
-            }
-        } else if (to_x == 2) {
-            hash = update_hash_with_piece_white(hash, 7 * 8 + 0, 'R');
-            hash = update_hash_with_piece_white(hash, 7 * 8 + 3, 'R');
-            hash ^= zobrist_castling[1];
-            if (board->white_right_castling) {
-                hash ^= zobrist_castling[0];
-            }
-        }
-    }
-
-    hash ^= zobrist_depth[depth];
-
-    return hash;
-}
-
-static int64_t update_hash_before_play_black(int64_t hash, const board_t * board, const play_t * play, int depth) {
-    int from_x = play->from_x;
-    int from_y = play->from_y;
-    int to_x = play->to_x;
-    int to_y = play->to_y;
-    int en_passant_x = board->en_passant_x;
-    int from_p = from_y * 8 + from_x;
-    int to_p = to_y * 8 + to_x;
-
-    char piece = identify_piece_black(board, from_p);
-    char to_piece = identify_piece_white(board, to_p);
-
-    hash = update_hash_with_piece_black(hash, from_p, piece);
-    if (to_piece != ' ') {
-        hash = update_hash_with_piece_white(hash, to_p, to_piece);
-    }
-
-    if (en_passant_x != NO_EN_PASSANT) {
-        hash ^= zobrist_en_passant[en_passant_x];
-
-        if (piece == 'p' && from_y == 4 && to_x == en_passant_x) {
-            hash = update_hash_with_piece_white(hash, from_y * 8 + en_passant_x, 'P');
-        }
-    }
-
-    if (from_x == 4 && piece == 'k') {
-        if (to_x == 6) {
-            hash = update_hash_with_piece_black(hash, 0 * 8 + 7, 'r');
-            hash = update_hash_with_piece_black(hash, 0 * 8 + 5, 'r');
-            hash ^= zobrist_castling[2];
-            if (board->black_left_castling) {
-                hash ^= zobrist_castling[3];
-            }
-        } else if (to_x == 2) {
-            hash = update_hash_with_piece_black(hash, 0 * 8 + 0, 'r');
-            hash = update_hash_with_piece_black(hash, 0 * 8 + 3, 'r');
-            hash ^= zobrist_castling[3];
-            if (board->black_right_castling) {
-                hash ^= zobrist_castling[2];
-            }
-        }
-    }
-
-    hash ^= zobrist_depth[depth];
-
-    return hash;
-}
-
-static int64_t update_hash_after_play_white(int64_t hash, const board_t * board, const play_t * play, int depth) {
-    int to_x = play->to_x;
-    int to_y = play->to_y;
-    int en_passant_x = board->en_passant_x;
-
-    hash = update_hash_with_piece(hash, to_y * 8 + to_x, identify_piece_white(board, to_y * 8 + to_x));
-
-    if (en_passant_x != NO_EN_PASSANT) {
-        hash ^= zobrist_en_passant[en_passant_x];
-    }
-
-    hash ^= zobrist_depth[depth];
-
-    return hash;
-}
-
-static int64_t update_hash_after_play_black(int64_t hash, const board_t * board, const play_t * play, int depth) {
-    int to_x = play->to_x;
-    int to_y = play->to_y;
-    int en_passant_x = board->en_passant_x;
-
-    hash = update_hash_with_piece(hash, to_y * 8 + to_x, identify_piece_black(board, to_y * 8 + to_x));
-
-    if (en_passant_x != NO_EN_PASSANT) {
-        hash ^= zobrist_en_passant[en_passant_x];
-    }
-
-    hash ^= zobrist_depth[depth];
-
-    return hash;
-}
-
 static int64_t hash_from_board(const board_t * board, int depth) {
     int64_t hash = 0xAAAAAAAAAAAAAAAA;
 
@@ -433,16 +305,16 @@ static int64_t hash_from_board(const board_t * board, int depth) {
     }
 
     if (board->white_right_castling) {
-        hash ^= zobrist_castling[0];
+        hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
     }
     if (board->white_left_castling) {
-        hash ^= zobrist_castling[1];
+        hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
     }
     if (board->black_right_castling) {
-        hash ^= zobrist_castling[2];
+        hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
     }
     if (board->black_left_castling) {
-        hash ^= zobrist_castling[3];
+        hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
     }
 
     hash ^= zobrist_depth[depth];
@@ -477,7 +349,7 @@ static void print_board(const board_t * board) {
     printf("╰┈a┈┈┈b┈┈┈c┈┈┈d┈┈┈e┈┈┈f┈┈┈g┈┈┈h┈┈┈╯\n\n");
 }
 
-static int just_play_white(board_t * board, const play_t * play, int score) {
+static void just_play_white_simple(board_t * board, const play_t * play) {
     char from_x = play->from_x;
     char from_y = play->from_y;
     char to_x = play->to_x;
@@ -488,32 +360,22 @@ static int just_play_white(board_t * board, const play_t * play, int score) {
     int to_p = to_y * 8 + to_x;
 
     char from_piece = identify_piece_white(board, from_p);
-    char to_piece = identify_piece_black(board, to_p);
 
     uint64_t from_mask = 1ULL << from_p;
     uint64_t to_mask = 1ULL << to_p;
 
     // Remove captured piece, at destination
-    switch (to_piece) {
-        case 'p': board->black_pawns ^= to_mask;   break;
-        case 'n': board->black_knights ^= to_mask; break;
-        case 'b': board->black_bishops ^= to_mask; break;
-        case 'r': board->black_rooks ^= to_mask;   break;
-        case 'q': board->black_queens ^= to_mask;  break;
-        case 'k': board->black_kings ^= to_mask;   break;
-    }
-    // Remove moved piece from origin
-    switch (from_piece) {
-        case 'P': board->white_pawns ^= from_mask;   break;
-        case 'N': board->white_knights ^= from_mask; break;
-        case 'B': board->white_bishops ^= from_mask; break;
-        case 'R': board->white_rooks ^= from_mask;   break;
-        case 'Q': board->white_queens ^= from_mask;  break;
-        case 'K': board->white_kings ^= from_mask;   break;
-    }
-    // Add moved piece to destination
+    board->black_pawns &= ~to_mask;
+    board->black_knights &= ~to_mask;
+    board->black_bishops &= ~to_mask;
+    board->black_rooks &= ~to_mask;
+    board->black_queens &= ~to_mask;
+    board->black_kings &= ~to_mask;
+
+    // Remove moved piece from origin and add it to destination
     switch (from_piece) {
         case 'P':
+            board->white_pawns ^= from_mask;
             if (promotion_option == 0) {
                 board->white_pawns ^= to_mask;
             } else {
@@ -525,82 +387,52 @@ static int just_play_white(board_t * board, const play_t * play, int score) {
                 }
             }
             break;
-        case 'N': board->white_knights ^= to_mask; break;
-        case 'B': board->white_bishops ^= to_mask; break;
-        case 'R': board->white_rooks ^= to_mask;   break;
-        case 'Q': board->white_queens ^= to_mask;  break;
-        case 'K': board->white_kings ^= to_mask;   break;
-    }
-
-    switch (to_piece) {
-        case 'p': score += 1 * PIECE_SCORE_MULTIPLIER; break;
-        case 'n': score += 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'b': score += 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'r': score += 5 * PIECE_SCORE_MULTIPLIER; break;
-        case 'q': score += 9 * PIECE_SCORE_MULTIPLIER; break;
+        case 'N':
+            board->white_knights ^= from_mask;
+            board->white_knights ^= to_mask;
+            break;
+        case 'B':
+            board->white_bishops ^= from_mask;
+            board->white_bishops ^= to_mask;
+            break;
+        case 'R':
+            board->white_rooks ^= from_mask;
+            board->white_rooks ^= to_mask;
+            break;
+        case 'Q':
+            board->white_queens ^= from_mask;
+            board->white_queens ^= to_mask;
+            break;
+        case 'K':
+            board->white_kings ^= from_mask;
+            board->white_kings ^= to_mask;
+            break;
     }
 
     if (board->en_passant_x != NO_EN_PASSANT) {
         if (board->en_passant_x == to_x) {
             if (from_y == 3 && from_piece == 'P') {
                 board->black_pawns ^= (1ULL << (from_y * 8 + to_x));
-                score += 1 * PIECE_SCORE_MULTIPLIER;
             }
         }
-        board->en_passant_x = NO_EN_PASSANT;
     }
 
     if (from_piece == 'K') {
-        if (from_y == to_y) {
-            if (board->white_right_castling && from_x + 2 == to_x) {
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-            } else if (board->white_left_castling && from_x - 2 == to_x) {
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
-                board->white_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-            }
-        }
-        board->white_right_castling = 0;
-        board->white_left_castling = 0;
-    }
-
-    if ((from_x == 0 && from_y == 7) || (to_x == 0 && to_y == 7)) {
-        board->white_left_castling = 0;
-    } else if ((from_x == 7 && from_y == 7) || (to_x == 7 && to_y == 7)) {
-        board->white_right_castling = 0;
-    } else if ((from_x == 0 && from_y == 0) || (to_x == 0 && to_y == 0)) {
-        board->black_left_castling = 0;
-    } else if ((from_x == 7 && from_y == 0) || (to_x == 7 && to_y == 0)) {
-        board->black_right_castling = 0;
-    }
-
-    if (from_piece == 'P') {
-        if (to_y == 0) {
-            if (promotion_option == PROMOTION_QUEEN) {
-                // 1 to 9
-                score += 8 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_KNIGHT) {
-                // 1 to 3
-                score += 2 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_BISHOP) {
-                // 1 to 3
-                score += 2 * PIECE_SCORE_MULTIPLIER;
-            } else {
-                // 1 to 5
-                score += 4 * PIECE_SCORE_MULTIPLIER;
-            }
-        } else {
-            if (from_y == 6 && to_y == 4) {
-                board->en_passant_x = from_x;
+        if (from_x == 4) {
+            if (to_x == 6) {
+                board->white_rooks ^= (1ULL << (0 * 8 + 5));
+                board->white_rooks ^= (1ULL << (0 * 8 + 7));
+            } else if (to_x == 2) {
+                board->white_rooks ^= (1ULL << (0 * 8 + 0));
+                board->white_rooks ^= (1ULL << (0 * 8 + 3));
             }
         }
     }
+
     board->color = BLACK_COLOR;
-
-    return score;
 }
 
-static int just_play_black(board_t * board, const play_t * play, int score) {
+static void just_play_black_simple(board_t * board, const play_t * play) {
     char from_x = play->from_x;
     char from_y = play->from_y;
     char to_x = play->to_x;
@@ -611,32 +443,22 @@ static int just_play_black(board_t * board, const play_t * play, int score) {
     int to_p = to_y * 8 + to_x;
 
     char from_piece = identify_piece_black(board, from_p);
-    char to_piece = identify_piece_white(board, to_p);
 
     uint64_t from_mask = 1ULL << from_p;
     uint64_t to_mask = 1ULL << to_p;
 
     // Remove captured piece, at destination
-    switch (to_piece) {
-        case 'P': board->white_pawns ^= to_mask;   break;
-        case 'N': board->white_knights ^= to_mask; break;
-        case 'B': board->white_bishops ^= to_mask; break;
-        case 'R': board->white_rooks ^= to_mask;   break;
-        case 'Q': board->white_queens ^= to_mask;  break;
-        case 'K': board->white_kings ^= to_mask;   break;
-    }
-    // Remove moved piece from origin
-    switch (from_piece) {
-        case 'p': board->black_pawns ^= from_mask;   break;
-        case 'n': board->black_knights ^= from_mask; break;
-        case 'b': board->black_bishops ^= from_mask; break;
-        case 'r': board->black_rooks ^= from_mask;   break;
-        case 'q': board->black_queens ^= from_mask;  break;
-        case 'k': board->black_kings ^= from_mask;   break;
-    }
-    // Add moved piece to destination
+    board->white_pawns &= ~to_mask;
+    board->white_knights &= ~to_mask;
+    board->white_bishops &= ~to_mask;
+    board->white_rooks &= ~to_mask;
+    board->white_queens &= ~to_mask;
+    board->white_kings &= ~to_mask;
+
+    // Remove moved piece from origin and add it to destination
     switch (from_piece) {
         case 'p':
+            board->black_pawns ^= from_mask;
             if (promotion_option == 0) {
                 board->black_pawns ^= to_mask;
             } else {
@@ -648,78 +470,572 @@ static int just_play_black(board_t * board, const play_t * play, int score) {
                 }
             }
             break;
-        case 'n': board->black_knights ^= to_mask; break;
-        case 'b': board->black_bishops ^= to_mask; break;
-        case 'r': board->black_rooks ^= to_mask;   break;
-        case 'q': board->black_queens ^= to_mask;  break;
-        case 'k': board->black_kings ^= to_mask;   break;
-    }
-
-    switch (to_piece) {
-        case 'P': score -= 1 * PIECE_SCORE_MULTIPLIER; break;
-        case 'N': score -= 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'B': score -= 3 * PIECE_SCORE_MULTIPLIER; break;
-        case 'R': score -= 5 * PIECE_SCORE_MULTIPLIER; break;
-        case 'Q': score -= 9 * PIECE_SCORE_MULTIPLIER; break;
+        case 'n':
+            board->black_knights ^= from_mask;
+            board->black_knights ^= to_mask;
+            break;
+        case 'b':
+            board->black_bishops ^= from_mask;
+            board->black_bishops ^= to_mask;
+            break;
+        case 'r':
+            board->black_rooks ^= from_mask;
+            board->black_rooks ^= to_mask;
+            break;
+        case 'q':
+            board->black_queens ^= from_mask;
+            board->black_queens ^= to_mask;
+            break;
+        case 'k':
+            board->black_kings ^= from_mask;
+            board->black_kings ^= to_mask;
+            break;
     }
 
     if (board->en_passant_x != NO_EN_PASSANT) {
         if (board->en_passant_x == to_x) {
             if (from_y == 4 && from_piece == 'p') {
                 board->white_pawns ^= (1ULL << (from_y * 8 + to_x));
-                score -= 1 * PIECE_SCORE_MULTIPLIER;
             }
         }
-        board->en_passant_x = NO_EN_PASSANT;
     }
 
     if (from_piece == 'k') {
-        if (from_y == to_y) {
-            if (board->black_right_castling && from_x + 2 == to_x) {
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 1));
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
-            } else if (board->black_left_castling && from_x - 2 == to_x) {
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x - 2));
-                board->black_rooks ^= (1ULL << (to_y * 8 + to_x + 1));
+        if (from_x == 4) {
+            if (to_x == 6) {
+                board->black_rooks ^= (1ULL << (0 * 8 + 5));
+                board->black_rooks ^= (1ULL << (0 * 8 + 7));
+            } else if (to_x == 2) {
+                board->black_rooks ^= (1ULL << (0 * 8 + 0));
+                board->black_rooks ^= (1ULL << (0 * 8 + 3));
             }
         }
-        board->black_right_castling = 0;
-        board->black_left_castling = 0;
     }
 
-    if ((from_x == 0 && from_y == 7) || (to_x == 0 && to_y == 7)) {
-        board->white_left_castling = 0;
-    } else if ((from_x == 7 && from_y == 7) || (to_x == 7 && to_y == 7)) {
-        board->white_right_castling = 0;
-    } else if ((from_x == 0 && from_y == 0) || (to_x == 0 && to_y == 0)) {
-        board->black_left_castling = 0;
-    } else if ((from_x == 7 && from_y == 0) || (to_x == 7 && to_y == 0)) {
-        board->black_right_castling = 0;
+    board->color = WHITE_COLOR;
+}
+
+static int just_play_white_pawn(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+    int from_x = play->from_x;
+    int from_y = play->from_y;
+    int to_x = play->to_x;
+    int to_y = play->to_y;
+    int en_passant_x = board->en_passant_x;
+    int from_p = from_y * 8 + from_x;
+    int to_p = to_y * 8 + to_x;
+    char promotion_option = play->promotion_option;
+
+    char from_piece = 'P';
+    char to_piece = identify_piece_black(board, to_p);
+
+    int64_t hash = *out_hash;
+
+    hash = update_hash_with_piece_white(hash, from_p, from_piece);
+    if (to_piece != ' ') {
+        hash = update_hash_with_piece_black(hash, to_p, to_piece);
     }
 
-    if (from_piece == 'p') {
-        if (to_y == 7) {
-            if (promotion_option == PROMOTION_QUEEN) {
-                // 1 to 9
-                score -= 8 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_KNIGHT) {
-                // 1 to 3
-                score -= 2 * PIECE_SCORE_MULTIPLIER;
-            } else if (promotion_option == PROMOTION_BISHOP) {
-                // 1 to 3
-                score -= 2 * PIECE_SCORE_MULTIPLIER;
-            } else {
-                // 1 to 5
-                score -= 4 * PIECE_SCORE_MULTIPLIER;
+    hash ^= zobrist_depth[depth];
+    hash ^= zobrist_depth[depth + 1];
+
+    uint64_t from_mask = 1ULL << from_p;
+    uint64_t to_mask = 1ULL << to_p;
+
+    // Remove captured piece, at destination
+    switch (to_piece) {
+        case 'p':
+            board->black_pawns ^= to_mask;
+            score += 1 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'n':
+            board->black_knights ^= to_mask;
+            score += 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'b':
+            board->black_bishops ^= to_mask;
+            score += 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'r':
+            board->black_rooks ^= to_mask;
+            score += 5 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'q':
+            board->black_queens ^= to_mask;
+            score += 9 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'k':
+            board->black_kings ^= to_mask;
+            break;
+    }
+
+    board->white_pawns ^= from_mask;
+
+    if (en_passant_x != NO_EN_PASSANT) {
+        if (en_passant_x == to_x && from_y == 3) {
+            hash = update_hash_with_piece_black(hash, 3 * 8 + en_passant_x, 'p');
+            board->black_pawns ^= to_mask;
+            score += 1 * PIECE_SCORE_MULTIPLIER;
+        }
+        hash ^= zobrist_en_passant[en_passant_x];
+        board->en_passant_x = NO_EN_PASSANT;
+    }
+
+    if (to_y == 0) {
+        if (to_x == 0) {
+            if (board->black_left_castling) {
+                board->black_left_castling = 0;
+                hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
             }
+        } else if (to_x == 7) {
+            if (board->black_right_castling) {
+                board->black_right_castling = 0;
+                hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
+            }
+        }
+
+        if (promotion_option == PROMOTION_QUEEN) {
+            // 1 to 9
+            score += 8 * PIECE_SCORE_MULTIPLIER;
+            board->white_queens ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'Q');
+        } else if (promotion_option == PROMOTION_KNIGHT) {
+            // 1 to 3
+            score += 2 * PIECE_SCORE_MULTIPLIER;
+            board->white_knights ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'N');
+        } else if (promotion_option == PROMOTION_BISHOP) {
+            // 1 to 3
+            score += 2 * PIECE_SCORE_MULTIPLIER;
+            board->white_bishops ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'B');
         } else {
-            if (from_y == 1 && to_y == 3) {
-                board->en_passant_x = from_x;
+            // 1 to 5
+            score += 4 * PIECE_SCORE_MULTIPLIER;
+            board->white_rooks ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'R');
+        }
+    } else {
+        board->white_pawns ^= to_mask;
+        hash = update_hash_with_piece(hash, to_p, 'P');
+
+        if (from_y == 6 && to_y == 4) {
+            board->en_passant_x = from_x;
+            hash ^= zobrist_en_passant[from_x];
+        }
+    }
+
+    board->color = BLACK_COLOR;
+
+    *out_hash = hash;
+    return score;
+}
+
+static int just_play_white_complex(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+    char from_x = play->from_x;
+    char from_y = play->from_y;
+    int from_p = from_y * 8 + from_x;
+
+    char from_piece = identify_piece_white(board, from_p);
+    if (from_piece == 'P') {
+        return just_play_white_pawn(board, play, score, depth, out_hash);
+    }
+
+    char to_x = play->to_x;
+    char to_y = play->to_y;
+    int to_p = to_y * 8 + to_x;
+    int en_passant_x = board->en_passant_x;
+
+    char to_piece = identify_piece_black(board, to_p);
+
+    int64_t hash = *out_hash;
+
+    hash = update_hash_with_piece_white(hash, from_p, from_piece);
+    if (to_piece != ' ') {
+        hash = update_hash_with_piece_black(hash, to_p, to_piece);
+    }
+
+    if (en_passant_x != NO_EN_PASSANT) {
+        hash ^= zobrist_en_passant[en_passant_x];
+        board->en_passant_x = NO_EN_PASSANT;
+    }
+
+    hash ^= zobrist_depth[depth];
+
+    uint64_t from_mask = 1ULL << from_p;
+    uint64_t to_mask = 1ULL << to_p;
+
+    // Remove captured piece, at destination
+    switch (to_piece) {
+        case 'p':
+            board->black_pawns ^= to_mask;
+            score += 1 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'n':
+            board->black_knights ^= to_mask;
+            score += 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'b':
+            board->black_bishops ^= to_mask;
+            score += 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'r':
+            board->black_rooks ^= to_mask;
+            score += 5 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'q':
+            board->black_queens ^= to_mask;
+            score += 9 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'k':
+            board->black_kings ^= to_mask;
+            break;
+    }
+    // Remove moved piece from origin and add it to destination
+    switch (from_piece) {
+        case 'N':
+            board->white_knights ^= from_mask;
+            board->white_knights ^= to_mask;
+            break;
+        case 'B':
+            board->white_bishops ^= from_mask;
+            board->white_bishops ^= to_mask;
+            break;
+        case 'R':
+            board->white_rooks ^= from_mask;
+            board->white_rooks ^= to_mask;
+            break;
+        case 'Q':
+            board->white_queens ^= from_mask;
+            board->white_queens ^= to_mask;
+            break;
+        case 'K':
+            board->white_kings ^= from_mask;
+            board->white_kings ^= to_mask;
+            break;
+    }
+
+    if (from_piece == 'K') {
+        if (from_x == 4) {
+            if (to_x == 6) {
+                board->white_rooks ^= (1ULL << (7 * 8 + 5));
+                board->white_rooks ^= (1ULL << (7 * 8 + 7));
+                hash = update_hash_with_piece_white(hash, 7 * 8 + 7, 'R');
+                hash = update_hash_with_piece_white(hash, 7 * 8 + 5, 'R');
+                hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
+                if (board->white_left_castling) {
+                    hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
+                }
+            } else if (to_x == 2) {
+                board->white_rooks ^= (1ULL << (7 * 8 + 0));
+                board->white_rooks ^= (1ULL << (7 * 8 + 3));
+                hash = update_hash_with_piece_white(hash, 7 * 8 + 0, 'R');
+                hash = update_hash_with_piece_white(hash, 7 * 8 + 3, 'R');
+                hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
+                if (board->white_right_castling) {
+                    hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
+                }
+            }
+        }
+        board->white_right_castling = 0;
+        board->white_left_castling = 0;
+    } else {
+        if (from_y == 7) {
+            if (from_x == 0) {
+                if (board->white_left_castling) {
+                    board->white_left_castling = 0;
+                    hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
+                }
+            } else if (from_x == 7) {
+                if (board->white_right_castling) {
+                    board->white_right_castling = 0;
+                    hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
+                }
             }
         }
     }
+    if (to_y == 0) {
+        if (to_x == 0) {
+            if (board->black_left_castling) {
+                board->black_left_castling = 0;
+                hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
+            }
+        } else if (to_x == 7) {
+            if (board->black_right_castling) {
+                board->black_right_castling = 0;
+                hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
+            }
+        }
+    }
+
+    hash = update_hash_with_piece(hash, to_p, from_piece);
+
+    hash ^= zobrist_depth[depth + 1];
+
+    board->color = BLACK_COLOR;
+
+    *out_hash = hash;
+    return score;
+}
+
+static int just_play_black_pawn(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+    int from_x = play->from_x;
+    int from_y = play->from_y;
+    int to_x = play->to_x;
+    int to_y = play->to_y;
+    int en_passant_x = board->en_passant_x;
+    int from_p = from_y * 8 + from_x;
+    int to_p = to_y * 8 + to_x;
+    char promotion_option = play->promotion_option;
+
+    char from_piece = 'p';
+    char to_piece = identify_piece_white(board, to_p);
+
+    int64_t hash = *out_hash;
+
+    hash = update_hash_with_piece_black(hash, from_p, from_piece);
+    if (to_piece != ' ') {
+        hash = update_hash_with_piece_white(hash, to_p, to_piece);
+    }
+
+    hash ^= zobrist_depth[depth];
+    hash ^= zobrist_depth[depth + 1];
+
+    uint64_t from_mask = 1ULL << from_p;
+    uint64_t to_mask = 1ULL << to_p;
+
+    // Remove captured piece, at destination
+    switch (to_piece) {
+        case 'P':
+            board->white_pawns ^= to_mask;
+            score -= 1 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'N':
+            board->white_knights ^= to_mask;
+            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'B':
+            board->white_bishops ^= to_mask;
+            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'R':
+            board->white_rooks ^= to_mask;
+            score -= 5 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'Q':
+            board->white_queens ^= to_mask;
+            score -= 9 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'K':
+            board->white_kings ^= to_mask;
+            break;
+    }
+
+    board->black_pawns ^= from_mask;
+
+    if (en_passant_x != NO_EN_PASSANT) {
+        if (en_passant_x == to_x && from_y == 4) {
+            hash = update_hash_with_piece_white(hash, 4 * 8 + en_passant_x, 'P');
+            board->white_pawns ^= to_mask;
+            score += 1 * PIECE_SCORE_MULTIPLIER;
+        }
+        hash ^= zobrist_en_passant[en_passant_x];
+        board->en_passant_x = NO_EN_PASSANT;
+    }
+
+    if (to_y == 7) {
+        if (to_x == 0) {
+            if (board->white_left_castling) {
+                board->white_left_castling = 0;
+                hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
+            }
+        } else if (to_x == 7) {
+            if (board->white_right_castling) {
+                board->white_right_castling = 0;
+                hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
+            }
+        }
+
+        if (promotion_option == PROMOTION_QUEEN) {
+            // 1 to 9
+            score -= 8 * PIECE_SCORE_MULTIPLIER;
+            board->black_queens ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'q');
+        } else if (promotion_option == PROMOTION_KNIGHT) {
+            // 1 to 3
+            score -= 2 * PIECE_SCORE_MULTIPLIER;
+            board->black_knights ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'n');
+        } else if (promotion_option == PROMOTION_BISHOP) {
+            // 1 to 3
+            score -= 2 * PIECE_SCORE_MULTIPLIER;
+            board->black_bishops ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'b');
+        } else {
+            // 1 to 5
+            score -= 4 * PIECE_SCORE_MULTIPLIER;
+            board->black_rooks ^= to_mask;
+            hash = update_hash_with_piece(hash, to_p, 'r');
+        }
+    } else {
+        board->black_pawns ^= to_mask;
+        hash = update_hash_with_piece(hash, to_p, 'p');
+
+        if (from_y == 1 && to_y == 3) {
+            board->en_passant_x = from_x;
+            hash ^= zobrist_en_passant[from_x];
+        }
+    }
+
     board->color = WHITE_COLOR;
 
+    *out_hash = hash;
+    return score;
+}
+
+static int just_play_black_complex(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+    char from_x = play->from_x;
+    char from_y = play->from_y;
+    int from_p = from_y * 8 + from_x;
+
+    char from_piece = identify_piece_black(board, from_p);
+    if (from_piece == 'p') {
+        return just_play_black_pawn(board, play, score, depth, out_hash);
+    }
+
+    char to_x = play->to_x;
+    char to_y = play->to_y;
+    int to_p = to_y * 8 + to_x;
+    int en_passant_x = board->en_passant_x;
+
+    char to_piece = identify_piece_white(board, to_p);
+
+    int64_t hash = *out_hash;
+
+    hash = update_hash_with_piece_black(hash, from_p, from_piece);
+    if (to_piece != ' ') {
+        hash = update_hash_with_piece_white(hash, to_p, to_piece);
+    }
+
+    if (en_passant_x != NO_EN_PASSANT) {
+        hash ^= zobrist_en_passant[en_passant_x];
+        board->en_passant_x = NO_EN_PASSANT;
+    }
+
+    hash ^= zobrist_depth[depth];
+
+    uint64_t from_mask = 1ULL << from_p;
+    uint64_t to_mask = 1ULL << to_p;
+
+    // Remove captured piece, at destination
+    switch (to_piece) {
+        case 'P':
+            board->white_pawns ^= to_mask;
+            score -= 1 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'N':
+            board->white_knights ^= to_mask;
+            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'B':
+            board->white_bishops ^= to_mask;
+            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'R':
+            board->white_rooks ^= to_mask;
+            score -= 5 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'Q':
+            board->white_queens ^= to_mask;
+            score -= 9 * PIECE_SCORE_MULTIPLIER;
+            break;
+        case 'K':
+            board->white_kings ^= to_mask;
+            break;
+    }
+    // Remove moved piece from origin and add it to destination
+    switch (from_piece) {
+        case 'n':
+            board->black_knights ^= from_mask;
+            board->black_knights ^= to_mask;
+            break;
+        case 'b':
+            board->black_bishops ^= from_mask;
+            board->black_bishops ^= to_mask;
+            break;
+        case 'r':
+            board->black_rooks ^= from_mask;
+            board->black_rooks ^= to_mask;
+            break;
+        case 'q':
+            board->black_queens ^= from_mask;
+            board->black_queens ^= to_mask;
+            break;
+        case 'k':
+            board->black_kings ^= from_mask;
+            board->black_kings ^= to_mask;
+            break;
+    }
+
+    if (from_piece == 'k') {
+        if (from_x == 4) {
+            if (to_x == 6) {
+                board->black_rooks ^= (1ULL << (0 * 8 + 5));
+                board->black_rooks ^= (1ULL << (0 * 8 + 7));
+                hash = update_hash_with_piece_black(hash, 0 * 8 + 7, 'r');
+                hash = update_hash_with_piece_black(hash, 0 * 8 + 5, 'r');
+                hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
+                if (board->black_left_castling) {
+                    hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
+                }
+            } else if (to_x == 2) {
+                board->black_rooks ^= (1ULL << (0 * 8 + 0));
+                board->black_rooks ^= (1ULL << (0 * 8 + 3));
+                hash = update_hash_with_piece_black(hash, 0 * 8 + 0, 'r');
+                hash = update_hash_with_piece_black(hash, 0 * 8 + 3, 'r');
+                hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
+                if (board->black_right_castling) {
+                    hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
+                }
+            }
+        }
+        board->black_right_castling = 0;
+        board->black_left_castling = 0;
+    } else {
+        if (from_y == 0) {
+            if (from_x == 0) {
+                if (board->black_left_castling) {
+                    board->black_left_castling = 0;
+                    hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
+                }
+            } else if (from_x == 7) {
+                if (board->black_right_castling) {
+                    board->black_right_castling = 0;
+                    hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
+                }
+            }
+        }
+    }
+    if (to_y == 7) {
+        if (to_x == 0) {
+            if (board->white_left_castling) {
+                board->white_left_castling = 0;
+                hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
+            }
+        } else if (to_x == 7) {
+            if (board->white_right_castling) {
+                board->white_right_castling = 0;
+                hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
+            }
+        }
+    }
+
+    hash = update_hash_with_piece(hash, to_p, from_piece);
+
+    hash ^= zobrist_depth[depth + 1];
+
+    board->color = WHITE_COLOR;
+
+    *out_hash = hash;
     return score;
 }
 
@@ -739,10 +1055,11 @@ static void actual_play(const play_t * play) {
         fullmoves++;
     }
 
+    int64_t hash = 0;
     if (board.color == WHITE_COLOR) {
-        just_play_white(&board, play, 0);
+        just_play_white_complex(&board, play, 0, 0, &hash);
     } else {
-        just_play_black(&board, play, 0);
+        just_play_black_complex(&board, play, 0, 0, &hash);
     }
 }
 
@@ -1530,7 +1847,7 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
-        just_play_white(&board_cpy, &valid_plays_local[i], 0);
+        just_play_white_simple(&board_cpy, &valid_plays_local[i]);
 
         uint64_t attacked = mask_attacked_positions_by_black(&board_cpy);
         if (attacked & board_cpy.white_kings) {
@@ -1575,7 +1892,7 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
-        just_play_black(&board_cpy, &valid_plays_local[i], 0);
+        just_play_black_simple(&board_cpy, &valid_plays_local[i]);
 
         uint64_t attacked = mask_attacked_positions_by_white(&board_cpy);
         if (attacked & board_cpy.black_kings) {
@@ -1752,11 +2069,10 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
         }
 
         memcpy(&board_cpy, board, sizeof(board_t));
-        int64_t this_hash = update_hash_before_play_white(hash, board, &valid_plays[i], depth);
+        int64_t this_hash = hash;
 
-        int score = just_play_white(&board_cpy, &valid_plays[i], initial_score);
+        int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
         int score_extra = valid_plays_i;
-        this_hash = update_hash_after_play_white(this_hash, &board_cpy, &valid_plays[i], depth + 1);
 
         score = minimax_black(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -1779,11 +2095,10 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
             }
 
             memcpy(&board_cpy, board, sizeof(board_t));
-            int64_t this_hash = update_hash_before_play_white(hash, board, &valid_plays[i], depth);
+            int64_t this_hash = hash;
 
-            int score = just_play_white(&board_cpy, &valid_plays[i], initial_score);
+            int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
             int score_extra = valid_plays_i;
-            this_hash = update_hash_after_play_white(this_hash, &board_cpy, &valid_plays[i], depth + 1);
 
             score = minimax_black(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -1886,11 +2201,10 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
         }
 
         memcpy(&board_cpy, board, sizeof(board_t));
-        int64_t this_hash = update_hash_before_play_black(hash, board, &valid_plays[i], depth);
+        int64_t this_hash = hash;
 
-        int score = just_play_black(&board_cpy, &valid_plays[i], initial_score);
+        int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
         int score_extra = -valid_plays_i;
-        this_hash = update_hash_after_play_black(this_hash, &board_cpy, &valid_plays[i], depth + 1);
 
         score = minimax_white(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -1913,11 +2227,10 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
             }
 
             memcpy(&board_cpy, board, sizeof(board_t));
-            int64_t this_hash = update_hash_before_play_black(hash, board, &valid_plays[i], depth);
+            int64_t this_hash = hash;
 
-            int score = just_play_black(&board_cpy, &valid_plays[i], initial_score);
+            int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
             int score_extra = -valid_plays_i;
-            this_hash = update_hash_after_play_black(this_hash, &board_cpy, &valid_plays[i], depth + 1);
 
             score = minimax_white(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -1968,11 +2281,12 @@ static int ai_play(play_t * play) {
     int best_score = NO_SCORE;
     int best_play = 0;
     bzero(hash_table, HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
+    int64_t hash = 0;
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
 
-        int score = board_cpy.color == WHITE_COLOR ? just_play_white(&board_cpy, &valid_plays[i], 0) : just_play_black(&board_cpy, &valid_plays[i], 0);
+        int score = board_cpy.color == WHITE_COLOR ? just_play_white_complex(&board_cpy, &valid_plays[i], 0, 0, &hash) : just_play_black_complex(&board_cpy, &valid_plays[i], 0, 0, &hash);
         int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
 
         board_to_short_string(buffer, &board_cpy);
