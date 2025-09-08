@@ -11,6 +11,7 @@ static board_t board;
 static unsigned int fullmoves;
 static char last_play_x = -1;
 static char last_play_y = -1;
+static int opening_book_enabled = 1;
 
 #define PIECE_SCORE_MULTIPLIER 256
 #define NO_SCORE -536870912
@@ -33,6 +34,91 @@ static int64_t zobrist_en_passant[8];
 static int64_t zobrist_castling[4];
 
 static hash_table_entry_t * hash_table;
+
+static unsigned int opening_book_size;
+static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
+static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
+
+static void reset_board();
+static void actual_play(const play_t * play);
+static int64_t hash_from_board(const board_t * board, int depth);
+
+static void init_opening_book() {
+    opening_book_size = 0;
+    srand(time(NULL));
+
+    play_t play;
+
+    play.promotion_option = 0;
+    FILE * fp = fopen("openings.txt", "r");
+
+    while (opening_book_size < MAX_SUPPORTED_OB_RULES) {
+        char * r = fgets(buffer, 16 * 1024, fp);
+        if (r == NULL) {
+            break;
+        }
+
+        char * s = buffer;
+        s[strlen(s) - 1] = 0;
+        if (s[0] == 0 || s[0] == '#') {
+            continue;
+        }
+
+        reset_board();
+
+        int plays_found = -1;
+        char * token;
+        while ((token = strsep(&s, " ")) != NULL && plays_found < 4) {
+            if (token[0] == '|') {
+                plays_found = 0;
+                continue;
+            }
+
+            if (plays_found == -1) {
+                play.from_x = token[0] - 'a';
+                play.from_y = '8' - token[1];
+                play.to_x = token[2] - 'a';
+                play.to_y = '8' - token[3];
+
+                actual_play(&play);
+                continue;
+            }
+
+            ob_plays[opening_book_size][plays_found].from_x = token[0] - 'a';
+            ob_plays[opening_book_size][plays_found].from_y = '8' - token[1];
+            ob_plays[opening_book_size][plays_found].to_x = token[2] - 'a';
+            ob_plays[opening_book_size][plays_found].to_y = '8' - token[3];
+            plays_found++;
+        }
+
+        if (plays_found != 4) {
+            fprintf(stderr, "Error loading opening book\n");
+            exit(EXIT_FAILURE);
+        }
+
+        opening_book[opening_book_size] = hash_from_board(&board, 0);
+        opening_book_size++;
+    }
+
+    fclose(fp);
+}
+
+static int get_opening_book_play(play_t * play, uint64_t board_hash) {
+    for (unsigned int i = 0; i < opening_book_size; ++i) {
+        if (board_hash == opening_book[i]) {
+            int play_picked = rand() % 4;
+
+            play->from_x = ob_plays[i][play_picked].from_x;
+            play->from_y = ob_plays[i][play_picked].from_y;
+            play->to_x = ob_plays[i][play_picked].to_x;
+            play->to_y = ob_plays[i][play_picked].to_y;
+            play->promotion_option = 0;
+            return 1;
+        }
+    }
+
+    return 0;
+}
 
 static void populate_pawn_capture_masks() {
     int x2, y2;
@@ -183,7 +269,7 @@ static void populate_zobrist_masks() {
     FILE * s = fopen(buffer, "rb");
     if (s == NULL) {
         fprintf(stderr, "Zobrist file with %d entries (depth %d) not found.\n", nItems, MAX_SEARCH_DEPTH);
-        exit(1);
+        exit(EXIT_FAILURE);
     }
 
     int64_t * zobrist_file = malloc(sizeof(int64_t) * nItems);
@@ -1120,7 +1206,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
 
     // Pawn double move forward
     uint64_t single = (board->white_pawns >> 8) & empty_mask;
-    moves = ((single >> 8) & empty_mask) & 0x00000000FF000000ULL;
+    moves = ((single >> 8) & empty_mask) & 0x000000FF00000000ULL;
 
     while (moves) {
         int to = __builtin_ctzll(moves);
@@ -1661,6 +1747,17 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         moves &= moves - 1;
     }
 
+    // King captures
+    moves = board->white_kings;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+
+        uint64_t moves_to = king_moves_masks[from] & black_mask;
+        attacked |= moves_to;
+
+        moves &= moves - 1;
+    }
+
     // Rooks and queens
     moves = board->white_rooks | board->white_queens;
     while (moves) {
@@ -1757,6 +1854,17 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         int from = __builtin_ctzll(moves);
 
         uint64_t moves_to = knight_moves_masks[from] & white_mask;
+        attacked |= moves_to;
+
+        moves &= moves - 1;
+    }
+
+    // King captures
+    moves = board->black_kings;
+    while (moves) {
+        int from = __builtin_ctzll(moves);
+
+        uint64_t moves_to = king_moves_masks[from] & white_mask;
         attacked |= moves_to;
 
         moves &= moves - 1;
@@ -2264,8 +2372,17 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
 }
 
 static int ai_play(play_t * play) {
-    board_t board_cpy;
+    if (opening_book_enabled) {
+        uint64_t board_hash = hash_from_board(&board, 0);
+        int play_found = get_opening_book_play(play, board_hash);
+        if (play_found) {
+            actual_play(play);
+            return 1;
+        }
+    }
+
     play_t valid_plays[128];
+    board_t board_cpy;
     int alpha = -2147483644;
     int beta = 2147483644;
 
@@ -2515,6 +2632,11 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
         print_board(&board);
         printf("%s to play...\n\n", board.color == WHITE_COLOR ? "White" : "Black");
 
+        if (board.white_kings == 0 || board.black_kings == 0) {
+            printf("ERROR\n");
+            exit(EXIT_FAILURE);
+        }
+
         int player_is_human = board.color == WHITE_COLOR ? player_one_is_human : player_two_is_human;
 
         if (player_is_human) {
@@ -2680,42 +2802,76 @@ static void uci_mode() {
 
 static void show_help() {
     printf("Prawn %s\n\nOptions:\n", PROGRAM_VERSION);
-    printf("  --uci  - Start on UCI intergace mode (default)\n");
-    printf("  --text - Play via the text interface\n");
-    printf("  --self - Have the program play against itself\n");
-    printf("  --help - Show this message\n\n");
+    printf("  --position - Start from FEN position\n");
+    printf("  --no-book  - Do not use the opening book\n");
+    printf("  --uci      - Start on UCI intergace mode (default)\n");
+    printf("  --text     - Play via the text interface\n");
+    printf("  --self     - Have the program play against itself\n");
+    printf("  --help     - Show this message\n\n");
 }
 
 int main(int argc, char * argv[]) {
     populate_pawn_capture_masks();
     populate_knight_moves_masks();
     populate_king_moves_masks();
-
     populate_zobrist_masks();
     hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
-    reset_board();
+
+    int from_fen_idx = -1;
 
     for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--from-fen") == 0) {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                from_fen_idx = i + 1;
+                i++;
+            } else {
+                printf("Incorrect argument after --from-fen\n");
+            }
+            continue;
+        }
+        if (strcmp(argv[i], "--no-book") == 0) {
+            opening_book_enabled = 0;
+        }
+    }
+
+    if (opening_book_enabled) {
+        init_opening_book();
+    }
+
+    reset_board();
+
+    if (from_fen_idx != -1) {
+        fen_to_board(&board, &fullmoves, argv[from_fen_idx]);
+    }
+
+    for (int i = 1; i < argc; ++i) {
+        if (strcmp(argv[i], "--from-fen") == 0) {
+            i++;
+            continue;
+        }
+        if (strcmp(argv[i], "--no-book") == 0) {
+            continue;
+        }
         if (strcmp(argv[i], "--uci") == 0) {
             uci_mode();
-            return 0;
+            return EXIT_SUCCESS;
         }
         if (strcmp(argv[i], "--text") == 0) {
             text_mode();
-            return 0;
+            return EXIT_SUCCESS;
         }
         if (strcmp(argv[i], "--self") == 0) {
             self_play();
-            return 0;
+            return EXIT_SUCCESS;
         }
         if (strcmp(argv[i], "--help") == 0) {
             show_help();
-            return 0;
+            return EXIT_SUCCESS;
         }
         printf("Unrecognized argument \"%s\"\n", argv[i]);
-        return 1;
+        return EXIT_FAILURE;
     }
 
     uci_mode();
-    return 0;
+    return EXIT_SUCCESS;
 }

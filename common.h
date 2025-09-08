@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 #include <strings.h>
+#include <time.h>
 
 #define PROGRAM_VERSION "1.0"
 
@@ -30,6 +31,13 @@ typedef struct {
     char en_passant_x;
     unsigned char halfmoves;
 } board_t;
+
+typedef struct {
+    char from_x;
+    char from_y;
+    char to_x;
+    char to_y;
+} play_short_t;
 
 typedef struct {
     char from_x;
@@ -66,6 +74,8 @@ typedef struct {
 #define CASTLING_WHITE_LEFT 1
 #define CASTLING_BLACK_RIGHT 2
 #define CASTLING_BLACK_LEFT 3
+
+#define MAX_SUPPORTED_OB_RULES 64
 
 void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_str);
 void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves);
