@@ -1367,34 +1367,92 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
-
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
-
-                if (to_mask & white_mask) {
-                    break;
-                }
-
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = x;
-                valid_plays[valid_plays_i].to_y = y;
-                valid_plays_i++;
-
-                if (to_mask & black_mask) {
-                    break;
-                }
-
-                x += dx;
-                y += dy;
+        int to_x = from_x + 1;
+        int to = from_y * 8 + from_x;
+        uint64_t to_mask = 1ULL << to;
+        while (to_x < 8) {
+            to_mask = to_mask << 1;
+            if (to_mask & white_mask) {
+                break;
             }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = from_y;
+            valid_plays_i++;
+
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            to_x += 1;
+        }
+
+        to_x = from_x - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_x >= 0) {
+            to_mask = to_mask >> 1;
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = from_y;
+            valid_plays_i++;
+
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            to_x -= 1;
+        }
+
+        int to_y = from_y + 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y < 8) {
+            to_mask = to_mask << 8;
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = from_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i++;
+
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            to_y += 1;
+        }
+
+        to_y = from_y - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y >= 0) {
+            to_mask = to_mask >> 8;
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = from_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i++;
+
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            to_y -= 1;
         }
 
         moves &= moves - 1;
@@ -1672,34 +1730,92 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
-
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
-
-                if (to_mask & black_mask) {
-                    break;
-                }
-
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = x;
-                valid_plays[valid_plays_i].to_y = y;
-                valid_plays_i++;
-
-                if (to_mask & white_mask) {
-                    break;
-                }
-
-                x += dx;
-                y += dy;
+        int to_x = from_x + 1;
+        int to = from_y * 8 + from_x;
+        uint64_t to_mask = 1ULL << to;
+        while (to_x < 8) {
+            to_mask = to_mask << 1;
+            if (to_mask & black_mask) {
+                break;
             }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = from_y;
+            valid_plays_i++;
+
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            to_x += 1;
+        }
+
+        to_x = from_x - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_x >= 0) {
+            to_mask = to_mask >> 1;
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = to_x;
+            valid_plays[valid_plays_i].to_y = from_y;
+            valid_plays_i++;
+
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            to_x -= 1;
+        }
+
+        int to_y = from_y + 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y < 8) {
+            to_mask = to_mask << 8;
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = from_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i++;
+
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            to_y += 1;
+        }
+
+        to_y = from_y - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y >= 0) {
+            to_mask = to_mask >> 8;
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            valid_plays[valid_plays_i].from_x = from_x;
+            valid_plays[valid_plays_i].from_y = from_y;
+            valid_plays[valid_plays_i].to_x = from_x;
+            valid_plays[valid_plays_i].to_y = to_y;
+            valid_plays_i++;
+
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            to_y -= 1;
         }
 
         moves &= moves - 1;
@@ -1794,29 +1910,72 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         int from_x = from % 8;
         int from_y = from / 8;
 
-        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
-
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
-
-                if (to_mask & white_mask) {
-                    break;
-                }
-
-                if (to_mask & black_mask) {
-                    attacked |= to_mask;
-                    break;
-                }
-
-                x += dx;
-                y += dy;
+        int to_x = from_x + 1;
+        int to = from_y * 8 + from_x;
+        uint64_t to_mask = 1ULL << to;
+        while (to_x < 8) {
+            to_mask = to_mask << 1;
+            if (to_mask & white_mask) {
+                break;
             }
+
+            if (to_mask & black_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_x += 1;
+        }
+
+        to_x = from_x - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_x >= 0) {
+            to_mask = to_mask >> 1;
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            if (to_mask & black_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_x -= 1;
+        }
+
+        int to_y = from_y + 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y < 8) {
+            to_mask = to_mask << 8;
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            if (to_mask & black_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_y += 1;
+        }
+
+        to_y = from_y - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y >= 0) {
+            to_mask = to_mask >> 8;
+            if (to_mask & white_mask) {
+                break;
+            }
+
+            if (to_mask & black_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_y -= 1;
         }
 
         moves &= moves - 1;
@@ -1906,29 +2065,72 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         int from_x = from % 8;
         int from_y = from / 8;
 
-        int directions[4][2] = { {1,0}, {-1,0}, {0,1}, {0,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
-
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
-
-                if (to_mask & black_mask) {
-                    break;
-                }
-
-                if (to_mask & white_mask) {
-                    attacked |= to_mask;
-                    break;
-                }
-
-                x += dx;
-                y += dy;
+        int to_x = from_x + 1;
+        int to = from_y * 8 + from_x;
+        uint64_t to_mask = 1ULL << to;
+        while (to_x < 8) {
+            to_mask = to_mask << 1;
+            if (to_mask & black_mask) {
+                break;
             }
+
+            if (to_mask & white_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_x += 1;
+        }
+
+        to_x = from_x - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_x >= 0) {
+            to_mask = to_mask >> 1;
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            if (to_mask & white_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_x -= 1;
+        }
+
+        int to_y = from_y + 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y < 8) {
+            to_mask = to_mask << 8;
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            if (to_mask & white_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_y += 1;
+        }
+
+        to_y = from_y - 1;
+        to = from_y * 8 + from_x;
+        to_mask = 1ULL << to;
+        while (to_y >= 0) {
+            to_mask = to_mask >> 8;
+            if (to_mask & black_mask) {
+                break;
+            }
+
+            if (to_mask & white_mask) {
+                attacked |= to_mask;
+                break;
+            }
+
+            to_y -= 1;
         }
 
         moves &= moves - 1;
