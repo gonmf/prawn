@@ -1351,6 +1351,26 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
         moves &= moves - 1;
     }
 
+    // King castling
+    if (board->white_kings & (1ULL << (7 * 8 + 4))) {
+        if (board->white_left_castling && (empty_mask & (1ULL << (7 * 8 + 1))) && (empty_mask & (1ULL << (7 * 8 + 2))) && (empty_mask & (1ULL << (7 * 8 + 3)))) {
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = 4;
+            valid_plays[valid_plays_i].from_y = 7;
+            valid_plays[valid_plays_i].to_x = 2;
+            valid_plays[valid_plays_i].to_y = 7;
+            valid_plays_i = valid_plays_i + 1;
+        }
+        if (board->white_right_castling && (empty_mask & (1ULL << (7 * 8 + 5))) && (empty_mask & (1ULL << (7 * 8 + 6)))) {
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = 4;
+            valid_plays[valid_plays_i].from_y = 7;
+            valid_plays[valid_plays_i].to_x = 6;
+            valid_plays[valid_plays_i].to_y = 7;
+            valid_plays_i = valid_plays_i + 1;
+        }
+    }
+
     // Rooks and queens
     moves = board->white_rooks | board->white_queens;
     while (moves) {
@@ -1634,6 +1654,26 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
         }
 
         moves &= moves - 1;
+    }
+
+    // King castling
+    if (board->black_kings & (1ULL << (0 * 8 + 4))) {
+        if (board->black_left_castling && (empty_mask & (1ULL << (0 * 8 + 1))) && (empty_mask & (1ULL << (0 * 8 + 2))) && (empty_mask & (1ULL << (0 * 8 + 3)))) {
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = 4;
+            valid_plays[valid_plays_i].from_y = 0;
+            valid_plays[valid_plays_i].to_x = 2;
+            valid_plays[valid_plays_i].to_y = 0;
+            valid_plays_i = valid_plays_i + 1;
+        }
+        if (board->black_right_castling && (empty_mask & (1ULL << (0 * 8 + 5))) && (empty_mask & (1ULL << (0 * 8 + 6)))) {
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = 4;
+            valid_plays[valid_plays_i].from_y = 0;
+            valid_plays[valid_plays_i].to_x = 6;
+            valid_plays[valid_plays_i].to_y = 0;
+            valid_plays_i = valid_plays_i + 1;
+        }
     }
 
     // Rooks and queens
@@ -1970,11 +2010,11 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
                 int to_x = valid_plays_local[i].to_x;
 
                 if (to_x == 6) {
-                    if (attacked & (7ULL << (from_y * 8 + 4))) {
+                    if (attacked & (7ULL << (from_y * 8 + 5))) {
                         continue;
                     }
                 } else if (to_x == 2) {
-                    if (attacked & (7ULL << (from_y * 8 + 2))) {
+                    if (attacked & (7ULL << (from_y * 8 + 3))) {
                         continue;
                     }
                 }
@@ -2015,11 +2055,11 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
                 int to_x = valid_plays_local[i].to_x;
 
                 if (to_x == 6) {
-                    if (attacked & (7ULL << (from_y * 8 + 4))) {
+                    if (attacked & (7ULL << (from_y * 8 + 5))) {
                         continue;
                     }
                 } else if (to_x == 2) {
-                    if (attacked & (7ULL << (from_y * 8 + 2))) {
+                    if (attacked & (7ULL << (from_y * 8 + 3))) {
                         continue;
                     }
                 }
