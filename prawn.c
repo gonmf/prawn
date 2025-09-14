@@ -1165,8 +1165,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
 
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
-    uint64_t occupied_mask = (white_mask | black_mask);
-    uint64_t empty_mask = ~occupied_mask;
+    uint64_t empty_mask = ~(white_mask | black_mask);
     uint64_t moves = (board->white_pawns >> 8) & empty_mask;
 
     // Pawn single move forward and promotion
