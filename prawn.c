@@ -1,6 +1,3 @@
-// TODO:
-// move quiescence
-
 #include "common.h"
 
 static char buffer[1024];
@@ -495,11 +492,9 @@ static void just_play_white_simple(board_t * board, const play_t * play) {
             break;
     }
 
-    if (board->en_passant_x != NO_EN_PASSANT) {
-        if (board->en_passant_x == to_x) {
-            if (from_y == 3 && from_piece == 'P') {
-                board->black_pawns ^= (1ULL << (from_y * 8 + to_x));
-            }
+    if (board->en_passant_x == to_x) {
+        if (from_y == 3 && from_piece == 'P') {
+            board->black_pawns ^= (1ULL << (from_y * 8 + to_x));
         }
     }
 
@@ -514,8 +509,6 @@ static void just_play_white_simple(board_t * board, const play_t * play) {
             }
         }
     }
-
-    board->color = BLACK_COLOR;
 }
 
 static void just_play_black_simple(board_t * board, const play_t * play) {
@@ -578,11 +571,9 @@ static void just_play_black_simple(board_t * board, const play_t * play) {
             break;
     }
 
-    if (board->en_passant_x != NO_EN_PASSANT) {
-        if (board->en_passant_x == to_x) {
-            if (from_y == 4 && from_piece == 'p') {
-                board->white_pawns ^= (1ULL << (from_y * 8 + to_x));
-            }
+    if (board->en_passant_x == to_x) {
+        if (from_y == 4 && from_piece == 'p') {
+            board->white_pawns ^= (1ULL << (from_y * 8 + to_x));
         }
     }
 
@@ -597,8 +588,6 @@ static void just_play_black_simple(board_t * board, const play_t * play) {
             }
         }
     }
-
-    board->color = WHITE_COLOR;
 }
 
 static int just_play_white_pawn(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
@@ -1987,9 +1976,6 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
     int valid_plays_i = 0;
     play_t valid_plays_local[128];
     int valid_plays_local_i = enumerate_all_possible_plays_white(valid_plays_local, board);
-    char king_piece = 'K';
-    char castling_possible = board->white_left_castling || board->white_right_castling;
-
     board_t board_cpy;
 
     // Detect if playing exposes king to immediate capture (illegal move)
@@ -2002,21 +1988,19 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
             continue;
         }
 
-        if (castling_possible) {
-            int from_x = valid_plays_local[i].from_x;
-            int from_y = valid_plays_local[i].from_y;
-            char piece = identify_piece_white(board, from_y * 8 + from_x);
-            if (piece == king_piece && from_x == 4) {
-                int to_x = valid_plays_local[i].to_x;
+        int from_x = valid_plays_local[i].from_x;
+        int from_y = valid_plays_local[i].from_y;
 
-                if (to_x == 6) {
-                    if (attacked & (7ULL << (from_y * 8 + 5))) {
-                        continue;
-                    }
-                } else if (to_x == 2) {
-                    if (attacked & (7ULL << (from_y * 8 + 3))) {
-                        continue;
-                    }
+        if (from_x == 4 && from_y == 7) {
+            int to_x = valid_plays_local[i].to_x;
+
+            if (to_x == 6) {
+                if (attacked & (1ULL << (7 * 8 + 5))) {
+                    continue;
+                }
+            } else if (to_x == 2) {
+                if (attacked & (1ULL << (7 * 8 + 3))) {
+                    continue;
                 }
             }
         }
@@ -2032,9 +2016,6 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
     int valid_plays_i = 0;
     play_t valid_plays_local[128];
     int valid_plays_local_i = enumerate_all_possible_plays_black(valid_plays_local, board);
-    char king_piece = 'k';
-    char castling_possible = board->black_left_castling || board->black_right_castling;
-
     board_t board_cpy;
 
     // Detect if playing exposes king to immediate capture (illegal move)
@@ -2047,21 +2028,19 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
             continue;
         }
 
-        if (castling_possible) {
-            int from_x = valid_plays_local[i].from_x;
-            int from_y = valid_plays_local[i].from_y;
-            char piece = identify_piece_black(board, from_y * 8 + from_x);
-            if (piece == king_piece && from_x == 4) {
-                int to_x = valid_plays_local[i].to_x;
+        int from_x = valid_plays_local[i].from_x;
+        int from_y = valid_plays_local[i].from_y;
 
-                if (to_x == 6) {
-                    if (attacked & (7ULL << (from_y * 8 + 5))) {
-                        continue;
-                    }
-                } else if (to_x == 2) {
-                    if (attacked & (7ULL << (from_y * 8 + 3))) {
-                        continue;
-                    }
+        if (from_x == 4 && from_y == 0) {
+            int to_x = valid_plays_local[i].to_x;
+
+            if (to_x == 6) {
+                if (attacked & (1ULL << (0 * 8 + 5))) {
+                    continue;
+                }
+            } else if (to_x == 2) {
+                if (attacked & (1ULL << (0 * 8 + 3))) {
+                    continue;
                 }
             }
         }
@@ -2858,6 +2837,7 @@ int main(int argc, char * argv[]) {
     hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
 
     int from_fen_idx = -1;
+    char mode = 'u';
 
     for (int i = 1; i < argc; ++i) {
         if (strcmp(argv[i], "--from-fen") == 0) {
@@ -2870,8 +2850,26 @@ int main(int argc, char * argv[]) {
             continue;
         }
         if (strcmp(argv[i], "--no-book") == 0) {
-            opening_book_enabled = 0;
+            continue;
         }
+        if (strcmp(argv[i], "--uci") == 0) {
+            mode = 'u';
+            continue;
+        }
+        if (strcmp(argv[i], "--text") == 0) {
+            mode = 't';
+            continue;
+        }
+        if (strcmp(argv[i], "--self") == 0) {
+            mode = 's';
+            continue;
+        }
+        if (strcmp(argv[i], "--help") == 0) {
+            show_help();
+            return EXIT_SUCCESS;
+        }
+        printf("Unrecognized argument \"%s\"\n", argv[i]);
+        return EXIT_FAILURE;
     }
 
     if (opening_book_enabled) {
@@ -2884,34 +2882,12 @@ int main(int argc, char * argv[]) {
         fen_to_board(&board, &fullmoves, argv[from_fen_idx]);
     }
 
-    for (int i = 1; i < argc; ++i) {
-        if (strcmp(argv[i], "--from-fen") == 0) {
-            i++;
-            continue;
-        }
-        if (strcmp(argv[i], "--no-book") == 0) {
-            continue;
-        }
-        if (strcmp(argv[i], "--uci") == 0) {
-            uci_mode();
-            return EXIT_SUCCESS;
-        }
-        if (strcmp(argv[i], "--text") == 0) {
-            text_mode();
-            return EXIT_SUCCESS;
-        }
-        if (strcmp(argv[i], "--self") == 0) {
-            self_play();
-            return EXIT_SUCCESS;
-        }
-        if (strcmp(argv[i], "--help") == 0) {
-            show_help();
-            return EXIT_SUCCESS;
-        }
-        printf("Unrecognized argument \"%s\"\n", argv[i]);
-        return EXIT_FAILURE;
+    if (mode == 'u') {
+        uci_mode();
+    } else if (mode == 's') {
+        self_play();
+    } else {
+        text_mode();
     }
-
-    uci_mode();
     return EXIT_SUCCESS;
 }
