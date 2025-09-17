@@ -3,7 +3,7 @@
 static char buffer[1024];
 
 static char past_positions[256][56];
-static unsigned char past_plays_count;
+static unsigned int past_plays_count;
 static board_t board;
 static unsigned int fullmoves;
 static char last_play_x = -1;
@@ -1115,7 +1115,9 @@ static int just_play_black_complex(board_t * board, const play_t * play, int sco
 }
 
 static void actual_play(const play_t * play) {
-    board_to_short_string(past_positions[past_plays_count++], &board);
+    if (past_plays_count < 256) {
+        board_to_short_string(past_positions[past_plays_count++], &board);
+    }
 
     char moving_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
     if (moving_piece == 'P' || moving_piece == 'p' || identify_piece(&board, play->to_y * 8 + play->to_x) != ' ') {
@@ -2630,7 +2632,7 @@ static int ai_play(play_t * play) {
         board_to_short_string(buffer, &board_cpy);
 
         int position_repeated = 0;
-        for (int pos = 0; pos < past_plays_count; ++pos) {
+        for (unsigned int pos = 0; pos < past_plays_count; ++pos) {
             if (strcmp(past_positions[pos], buffer) == 0) {
                 position_repeated++;
                 if (position_repeated == 2) {
@@ -2921,8 +2923,9 @@ static void self_play() {
     text_mode_play(0, 0);
 }
 
-static void uci_mode() {
-    FILE * fd = fopen("uci.log", "a");
+static void uci_mode(const char * program_name) {
+    sprintf(buffer, "%s.log", program_name);
+    FILE * fd = fopen(buffer, "a");
     fprintf(fd, "# Starting in UCI mode.\n");
     fflush(fd);
 
@@ -3086,7 +3089,7 @@ int main(int argc, char * argv[]) {
     }
 
     if (mode == 'u') {
-        uci_mode();
+        uci_mode(argv[0]);
     } else if (mode == 's') {
         self_play();
     } else {

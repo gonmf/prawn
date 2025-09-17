@@ -1,4 +1,6 @@
 prawn
+prawn-base
 prawn-debug
 prawn-debug.dSYM/
-uci.log
+*.log
+cutechess-cli
