@@ -2366,8 +2366,9 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
     }
 
     board_t board_cpy;
-    play_t valid_plays[128];
-    char captures[128];
+    // For why 218, see https://lichess.org/@/Tobs40/blog/why-a-position-cant-have-more-than-218-moves/a5xdxeqs
+    play_t valid_plays[218];
+    char captures[218];
 
     int valid_plays_i = enumerate_legal_plays_white(valid_plays, board);
     if (valid_plays_i == 0) {
@@ -2498,8 +2499,8 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
     }
 
     board_t board_cpy;
-    play_t valid_plays[128];
-    char captures[128];
+    play_t valid_plays[218];
+    char captures[218];
 
     int valid_plays_i = enumerate_legal_plays_black(valid_plays, board);
     if (valid_plays_i == 0) {
@@ -2604,7 +2605,7 @@ static int ai_play(play_t * play) {
         }
     }
 
-    play_t valid_plays[128];
+    play_t valid_plays[218];
     board_t board_cpy;
     int alpha = -2147483644;
     int beta = 2147483644;
@@ -2849,7 +2850,7 @@ static void send_uci_command(FILE * fd, const char * str) {
 }
 
 static void text_mode_play(int player_one_is_human, int player_two_is_human) {
-    play_t valid_plays[128];
+    play_t valid_plays[218];
 
     while (1) {
         print_board(&board);
