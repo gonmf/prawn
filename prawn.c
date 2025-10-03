@@ -38,7 +38,7 @@ static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 
 static void reset_board();
 static void actual_play(const play_t * play);
-static int64_t hash_from_board(const board_t * board, int depth);
+static int64_t hash_from_board(const board_t * board);
 
 static void init_opening_book() {
     opening_book_size = 0;
@@ -93,7 +93,7 @@ static void init_opening_book() {
             exit(EXIT_FAILURE);
         }
 
-        opening_book[opening_book_size] = hash_from_board(&board, 0);
+        opening_book[opening_book_size] = hash_from_board(&board);
         opening_book_size++;
     }
 
@@ -373,7 +373,7 @@ static char identify_piece_black(const board_t * board, int p) {
     return ' ';
 }
 
-static int64_t hash_from_board(const board_t * board, int depth) {
+static int64_t hash_from_board(const board_t * board) {
     int64_t hash = 0xAAAAAAAAAAAAAAAA;
 
     for (int p = 0; p < 64; ++p) {
@@ -388,10 +388,10 @@ static int64_t hash_from_board(const board_t * board, int depth) {
     }
 
     if (board->white_right_castling) {
-        hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
+        hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
     }
     if (board->white_left_castling) {
-        hash ^= zobrist_castling[CASTLING_WHITE_RIGHT];
+        hash ^= zobrist_castling[CASTLING_WHITE_LEFT];
     }
     if (board->black_right_castling) {
         hash ^= zobrist_castling[CASTLING_BLACK_RIGHT];
@@ -399,8 +399,6 @@ static int64_t hash_from_board(const board_t * board, int depth) {
     if (board->black_left_castling) {
         hash ^= zobrist_castling[CASTLING_BLACK_LEFT];
     }
-
-    hash ^= zobrist_depth[depth];
 
     return hash;
 }
@@ -1905,7 +1903,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         moves &= moves - 1;
     }
 
-    // Rooks and queens
+    // Rook and queen captures
     moves = board->white_rooks | board->white_queens;
     while (moves) {
         int from = __builtin_ctzll(moves);
@@ -1983,7 +1981,7 @@ static uint64_t mask_attacked_positions_by_white(const board_t * board) {
         moves &= moves - 1;
     }
 
-    // Bishops and queens
+    // Bishop and queen captures
     moves = board->white_bishops | board->white_queens;
     while (moves) {
         int from = __builtin_ctzll(moves);
@@ -2060,7 +2058,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         moves &= moves - 1;
     }
 
-    // Rooks and queens
+    // Rook and queen captures
     moves = board->black_rooks | board->black_queens;
     while (moves) {
         int from = __builtin_ctzll(moves);
@@ -2138,7 +2136,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
         moves &= moves - 1;
     }
 
-    // Bishops and queens
+    // Bishop and queen captures
     moves = board->black_bishops | board->black_queens;
     while (moves) {
         int from = __builtin_ctzll(moves);
@@ -2178,7 +2176,7 @@ static uint64_t mask_attacked_positions_by_black(const board_t * board) {
 
 static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
-    play_t valid_plays_local[128];
+    play_t valid_plays_local[218];
     int valid_plays_local_i = enumerate_all_possible_plays_white(valid_plays_local, board);
     board_t board_cpy;
 
@@ -2218,7 +2216,7 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
 
 static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * board) {
     int valid_plays_i = 0;
-    play_t valid_plays_local[128];
+    play_t valid_plays_local[218];
     int valid_plays_local_i = enumerate_all_possible_plays_black(valid_plays_local, board);
     board_t board_cpy;
 
@@ -2265,57 +2263,15 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
 }
 
 static int king_threatened_white(board_t * board) {
-    uint64_t king_mask = board->white_kings ;
-
-    char en_passant_x = board->en_passant_x;
-    char white_left_castling = board->white_left_castling;
-    char white_right_castling = board->white_right_castling;
-    char black_left_castling = board->black_left_castling;
-    char black_right_castling = board->black_right_castling;
-
-    board->en_passant_x = NO_EN_PASSANT;
-    board->white_left_castling = 0;
-    board->white_right_castling = 0;
-    board->black_left_castling = 0;
-    board->black_right_castling = 0;
-    board->color = BLACK_COLOR;
-
+    uint64_t king_mask = board->white_kings;
     uint64_t attacked = mask_attacked_positions_by_black(board);
-
-    board->en_passant_x = en_passant_x;
-    board->white_left_castling = white_left_castling;
-    board->white_right_castling = white_right_castling;
-    board->black_left_castling = black_left_castling;
-    board->black_right_castling = black_right_castling;
-    board->color = WHITE_COLOR;
 
     return attacked & king_mask;
 }
 
 static int king_threatened_black(board_t * board) {
     uint64_t king_mask = board->black_kings;
-
-    char en_passant_x = board->en_passant_x;
-    char white_left_castling = board->white_left_castling;
-    char white_right_castling = board->white_right_castling;
-    char black_left_castling = board->black_left_castling;
-    char black_right_castling = board->black_right_castling;
-
-    board->en_passant_x = NO_EN_PASSANT;
-    board->white_left_castling = 0;
-    board->white_right_castling = 0;
-    board->black_left_castling = 0;
-    board->black_right_castling = 0;
-    board->color = WHITE_COLOR;
-
     uint64_t attacked = mask_attacked_positions_by_white(board);
-
-    board->en_passant_x = en_passant_x;
-    board->white_left_castling = white_left_castling;
-    board->white_right_castling = white_right_castling;
-    board->black_left_castling = black_left_castling;
-    board->black_right_castling = black_right_castling;
-    board->color = BLACK_COLOR;
 
     return attacked & king_mask;
 }
@@ -2597,7 +2553,7 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
 
 static int ai_play(play_t * play) {
     if (opening_book_enabled) {
-        uint64_t board_hash = hash_from_board(&board, 0);
+        uint64_t board_hash = hash_from_board(&board);
         int play_found = get_opening_book_play(play, board_hash);
         if (play_found) {
             actual_play(play);
@@ -2645,9 +2601,9 @@ static int ai_play(play_t * play) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
             if (board_cpy.color == WHITE_COLOR) {
-                score = minimax_white(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy, 0));
+                score = minimax_white(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy));
             } else {
-                score = minimax_black(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy, 0));
+                score = minimax_black(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy));
             }
         }
 
@@ -2764,6 +2720,9 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
         fgets(buffer, 1024, stdin);
 
         buffer[4] = 0;
+        if (strcmp(buffer, "quit") == 0) {
+            exit(EXIT_FAILURE);
+        }
         char * input_is_valid = read_play(play, buffer);
 
         if (input_is_valid) {
