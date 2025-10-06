@@ -36,13 +36,14 @@ static unsigned int opening_book_size;
 static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
 static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 
+static int extend_uci;
+
 static void reset_board();
 static void actual_play(const play_t * play);
 static int64_t hash_from_board(const board_t * board);
 
 static void init_opening_book() {
     opening_book_size = 0;
-    srand(time(NULL));
 
     play_t play;
 
@@ -2287,7 +2288,7 @@ static int king_threatened(board_t * board) {
 static int minimax_black(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash);
 
 static int minimax_white(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
-    if (board->halfmoves == 50) {
+    if (board->halfmoves == 100) {
         return -10000000 - depth * 128;
     }
 
@@ -2420,7 +2421,7 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
 }
 
 static int minimax_black(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
-    if (board->halfmoves == 50) {
+    if (board->halfmoves == 100) {
         return 10000000 + depth * 128;
     }
 
@@ -2883,9 +2884,19 @@ static void self_play() {
     text_mode_play(0, 0);
 }
 
-static void uci_mode(const char * program_name) {
-    sprintf(buffer, "%s.log", program_name);
-    FILE * fd = fopen(buffer, "a");
+static FILE * init_log_file(const char * program_name) {
+    const char * charset = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    char str[5];
+    for (int i = 0; i < 4; i++) {
+        str[i] = charset[rand() % (sizeof(charset) - 1)];
+    }
+    str[4] = 0;
+
+    sprintf(buffer, "%s_%ld_%s.log", program_name, time(NULL), str);
+    return fopen(buffer, "a");
+}
+
+static void uci_mode(FILE * fd) {
     fprintf(fd, "# Starting in UCI mode.\n");
     fflush(fd);
 
@@ -2949,17 +2960,31 @@ static void uci_mode(const char * program_name) {
             }
             continue;
         }
+        if (extend_uci) {
+            if (strcmp(buffer, "log_fen") == 0) {
+                board_to_fen(buffer, &board, fullmoves);
+                fprintf(fd, "# %s\n", buffer);
+                fflush(fd);
+                continue;
+            }
+        }
         if (strcmp(buffer, "go") == 0 || strncmp(buffer, "go ", strlen("go ")) == 0) {
             play_t play;
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
                 fprintf(fd, "# Player lost.\n");
                 fflush(fd);
+                if (extend_uci) {
+                    send_uci_command(fd, "loss");
+                }
                 continue;
             }
             if (played == DRAW) {
                 fprintf(fd, "# Game is drawn.\n");
                 fflush(fd);
+                if (extend_uci) {
+                    send_uci_command(fd, "draw");
+                }
                 continue;
             }
 
@@ -2986,21 +3011,31 @@ static void uci_mode(const char * program_name) {
 
 static void show_help() {
     printf("Prawn %s\n\nOptions:\n", PROGRAM_VERSION);
-    printf("  --position - Start from FEN position\n");
-    printf("  --no-book  - Do not use the opening book\n");
-    printf("  --uci      - Start on UCI intergace mode (default)\n");
-    printf("  --text     - Play via the text interface\n");
-    printf("  --self     - Have the program play against itself\n");
-    printf("  --help     - Show this message\n\n");
+    printf("  --position   - Start from FEN position\n");
+    printf("  --no-book    - Do not use the opening book\n");
+    printf("  --uci        - Start on UCI interface mode (default)\n");
+    printf("  --text       - Play via the text interface\n");
+    printf("  --self       - Have the program play against itself\n");
+    printf("  --extend-uci - In UCI mode reply loss/draw to position commands\n");
+    printf("  --help, -h   - Show this message\n\n");
+}
+
+static void init_randomness() {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    unsigned int seed = (unsigned int)(tv.tv_sec ^ tv.tv_usec ^ getpid());
+    srand(seed);
 }
 
 int main(int argc, char * argv[]) {
+    init_randomness();
     populate_pawn_capture_masks();
     populate_knight_moves_masks();
     populate_king_moves_masks();
     populate_zobrist_masks();
     hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
 
+    extend_uci = 0;
     int from_fen_idx = -1;
     char mode = 'u';
 
@@ -3030,9 +3065,13 @@ int main(int argc, char * argv[]) {
             mode = 's';
             continue;
         }
-        if (strcmp(argv[i], "--help") == 0) {
+        if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             show_help();
             return EXIT_SUCCESS;
+        }
+        if (strcmp(argv[i], "--extend-uci") == 0) {
+            extend_uci = 1;
+            continue;
         }
         printf("Unrecognized argument \"%s\"\n", argv[i]);
         return EXIT_FAILURE;
@@ -3049,7 +3088,8 @@ int main(int argc, char * argv[]) {
     }
 
     if (mode == 'u') {
-        uci_mode(argv[0]);
+        FILE * fd = init_log_file(argv[0]);
+        uci_mode(fd);
     } else if (mode == 's') {
         self_play();
     } else {
