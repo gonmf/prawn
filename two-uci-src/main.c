@@ -102,7 +102,7 @@ int main(int argc, char * argv[]) {
 
     printf("\rRounds #\t|\tP1 WR\t|\tWH WR\t|\tDRAWS\t|\tERROR\t|\tavg time (s)\n");
 
-    while (round < 10) {
+    while (1) {
         round += 1;
 
         gettimeofday(&start, NULL);
@@ -125,16 +125,18 @@ int main(int argc, char * argv[]) {
 
                 read_line(buffer, prog1_outPipe[0]);
 
+                if (strcmp(buffer, "error\n") == 0) {
+                    total_error++;
+                    break;
+                }
                 if (strcmp(buffer, "loss\n") == 0) {
                     if (!white_is_player_1) {
                         white_wins++;
                     }
-                    write_line(prog1_inPipe[1], "log_fen\n");
                     break;
                 }
                 if (strcmp(buffer, "draw\n") == 0) {
                     total_draws++;
-                    write_line(prog1_inPipe[1], "log_fen\n");
                     break;
                 }
 
@@ -147,17 +149,19 @@ int main(int argc, char * argv[]) {
 
             read_line(buffer, prog2_outPipe[0]);
 
+            if (strcmp(buffer, "error\n") == 0) {
+                total_error++;
+                break;
+            }
             if (strcmp(buffer, "loss\n") == 0) {
                 player1_wins++;
                 if (white_is_player_1) {
                     white_wins++;
                 }
-                write_line(prog2_inPipe[1], "log_fen\n");
                 break;
             }
             if (strcmp(buffer, "draw\n") == 0) {
                 total_draws++;
-                write_line(prog2_inPipe[1], "log_fen\n");
                 break;
             }
 
@@ -170,13 +174,20 @@ int main(int argc, char * argv[]) {
             total_error++;
         }
 
+        write_line(prog1_inPipe[1], "log_fen\n");
+        write_line(prog2_inPipe[1], "log_fen\n");
+
         gettimeofday(&end, NULL);
 
         float total = round / 100.0;
         total_elapsed += ((double)elapsed_ms(start, end)) / 1000.0;
         printf("\r             ");
         fflush(stdout);
-        printf("\rRounds %d\t|\t%.2f%%\t|\t%.2f%%\t|\t%.2f%%\t|\t%.2f%%\t|\t%.3f\n", round, player1_wins / total, total_draws / total, white_wins / total, total_error / total, total_elapsed / round);
+
+        int total_finished_games = round - total_draws - total_error;
+        double player1_wr = total_finished_games ? player1_wins / ((double)total_finished_games) * 100.0 : 0.0;
+        double white_wr = total_finished_games ? white_wins / ((double)total_finished_games) * 100.0 : 0.0;
+        printf("\rRounds %d\t|\t%.2f%%\t|\t%.2f%%\t|\t%.2f%%\t|\t%.2f%%\t|\t%.3f\n", round, player1_wr, white_wr, total_draws / total, total_error / total, total_elapsed / round);
     }
 
     return EXIT_SUCCESS;

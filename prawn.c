@@ -37,6 +37,7 @@ static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
 static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 
 static int extend_uci;
+static int uci_game_in_error_state;
 
 static void reset_board();
 static void actual_play(const play_t * play);
@@ -404,31 +405,35 @@ static int64_t hash_from_board(const board_t * board) {
     return hash;
 }
 
-static void print_board(const board_t * board) {
+static void fprint_board(FILE * fd, const board_t * board) {
     board_to_fen(buffer, board, fullmoves);
-    printf("%s\n", buffer);
-    printf("╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
+    fprintf(fd, "%s\n", buffer);
+    fprintf(fd, "╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
-        printf("║ ");
+        fprintf(fd, "║ ");
         for (int x = 0; x < 8; x++) {
             if (x == last_play_x && y == last_play_y) {
-                printf("\033[32m%c\e[0m", identify_piece(board, y * 8 + x));
+                fprintf(fd, "\033[32m%c\e[0m", identify_piece(board, y * 8 + x));
             } else {
-                printf("%c", identify_piece(board, y * 8 + x));
+                fprintf(fd, "%c", identify_piece(board, y * 8 + x));
             }
             if (x < 7) {
-                printf(" │ ");
+                fprintf(fd, " │ ");
             } else {
-                printf(" ║ %c", 8 - y + '0');
+                fprintf(fd, " ║ %c", 8 - y + '0');
             }
         }
-        printf(("\n"));
+        fprintf(fd, ("\n"));
         if (y < 7) {
-            printf("╟───┼───┼───┼───┼───┼───┼───┼───╢ ┊\n");
+            fprintf(fd, "╟───┼───┼───┼───┼───┼───┼───┼───╢ ┊\n");
         }
     }
-    printf("╚═══╧═══╧═══╧═══╧═══╧═══╧═══╧═══╝ ┊\n");
-    printf("╰┈a┈┈┈b┈┈┈c┈┈┈d┈┈┈e┈┈┈f┈┈┈g┈┈┈h┈┈┈╯\n\n");
+    fprintf(fd, "╚═══╧═══╧═══╧═══╧═══╧═══╧═══╧═══╝ ┊\n");
+    fprintf(fd, "╰┈a┈┈┈b┈┈┈c┈┈┈d┈┈┈e┈┈┈f┈┈┈g┈┈┈h┈┈┈╯\n\n");
+}
+
+static void print_board(const board_t * board) {
+    fprint_board(stdout, board);
 }
 
 static void just_play_white_simple(board_t * board, const play_t * play) {
@@ -1304,6 +1309,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1329,6 +1335,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1377,6 +1384,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1399,6 +1407,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1421,6 +1430,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = from_x;
@@ -1443,6 +1453,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = from_x;
@@ -1481,6 +1492,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                     break;
                 }
 
+                valid_plays[valid_plays_i].promotion_option = 0;
                 valid_plays[valid_plays_i].from_x = from_x;
                 valid_plays[valid_plays_i].from_y = from_y;
                 valid_plays[valid_plays_i].to_x = x;
@@ -1587,7 +1599,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        uint64_t moves_to = white_pawn_capture_masks[from] & white_mask;
+        uint64_t moves_to = black_pawn_capture_masks[from] & white_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
             int to_x = to % 8;
@@ -1667,6 +1679,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1692,6 +1705,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
             int to_x = to % 8;
             int to_y = to / 8;
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1740,6 +1754,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1762,6 +1777,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = to_x;
@@ -1784,6 +1800,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = from_x;
@@ -1806,6 +1823,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
+            valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = from_x;
             valid_plays[valid_plays_i].from_y = from_y;
             valid_plays[valid_plays_i].to_x = from_x;
@@ -1844,6 +1862,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                     break;
                 }
 
+                valid_plays[valid_plays_i].promotion_option = 0;
                 valid_plays[valid_plays_i].from_x = from_x;
                 valid_plays[valid_plays_i].from_y = from_y;
                 valid_plays[valid_plays_i].to_x = x;
@@ -2800,6 +2819,7 @@ static void reset_board() {
     board.halfmoves = 0;
     fullmoves = 0;
     past_plays_count = 0;
+    last_play_x = -1;
 }
 
 static void send_uci_command(FILE * fd, const char * str) {
@@ -2933,16 +2953,19 @@ static void uci_mode(FILE * fd) {
         }
         if (strcmp(buffer, "ucinewgame") == 0) {
             reset_board();
+            uci_game_in_error_state = 0;
             continue;
         }
         if (strncmp(buffer, "position ", strlen("position ")) == 0) {
             char * str = strstr(buffer, " startpos ");
             if (str) {
                 reset_board();
+                uci_game_in_error_state = 0;
             } else {
                 str = strstr(buffer, " fen ");
                 if (str) {
                     fen_to_board(&board, &fullmoves, str + strlen(" fen "));
+                    uci_game_in_error_state = 0;
                 }
             }
 
@@ -2954,7 +2977,36 @@ static void uci_mode(FILE * fd) {
                     play_t play;
                     str = read_play(&play, str);
                     if (str) {
-                        actual_play(&play);
+                        play_t valid_plays[218];
+                        int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
+                        if (valid_plays_i == 0) {
+                            fprint_board(stderr, &board);
+
+                            fprintf(fd, "# Invalid play detected - game is over\n");
+                            fflush(fd);
+                            if (extend_uci) {
+                                uci_game_in_error_state = 1;
+                            }
+                            break;
+                        }
+
+                        int play_is_valid = 0;
+                        for (int i = 0; i < valid_plays_i; ++i) {
+                            if (play.from_x == valid_plays[i].from_x && play.from_y == valid_plays[i].from_y && play.to_x == valid_plays[i].to_x && play.to_y == valid_plays[i].to_y) {
+                                play_is_valid = 1;
+                                break;
+                            }
+                        }
+                        if (play_is_valid) {
+                            actual_play(&play);
+                        } else {
+                            fprintf(fd, "# Invalid play detected\n");
+                            fflush(fd);
+                            if (extend_uci) {
+                                uci_game_in_error_state = 1;
+                            }
+                            break;
+                        }
                     }
                 }
             }
@@ -2969,7 +3021,15 @@ static void uci_mode(FILE * fd) {
             }
         }
         if (strcmp(buffer, "go") == 0 || strncmp(buffer, "go ", strlen("go ")) == 0) {
+            if (uci_game_in_error_state) {
+                if (extend_uci) {
+                    send_uci_command(fd, "error");
+                }
+                continue;
+            }
+
             play_t play;
+
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
                 fprintf(fd, "# Player lost.\n");
@@ -2989,17 +3049,14 @@ static void uci_mode(FILE * fd) {
             }
 
             char * b = buffer + sprintf(buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
-            char piece = identify_piece(&board, play.from_y * 8 + play.from_x);
-            if (piece == 'P' && piece == 'p') {
-                if (play.promotion_option == PROMOTION_QUEEN) {
-                    sprintf(b, "q");
-                } else if (play.promotion_option == PROMOTION_KNIGHT) {
-                    sprintf(b, "n");
-                } else if (play.promotion_option == PROMOTION_BISHOP) {
-                    sprintf(b, "b");
-                } else if (play.promotion_option == PROMOTION_ROOK) {
-                    sprintf(b, "r");
-                }
+            if (play.promotion_option == PROMOTION_QUEEN) {
+                sprintf(b, "q");
+            } else if (play.promotion_option == PROMOTION_KNIGHT) {
+                sprintf(b, "n");
+            } else if (play.promotion_option == PROMOTION_BISHOP) {
+                sprintf(b, "b");
+            } else if (play.promotion_option == PROMOTION_ROOK) {
+                sprintf(b, "r");
             }
             send_uci_command(fd, buffer);
             continue;
