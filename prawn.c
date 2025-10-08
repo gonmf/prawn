@@ -2658,6 +2658,7 @@ static int ai_play(play_t * play) {
                 }
             }
         }
+
         if (position_repeated == 2) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
