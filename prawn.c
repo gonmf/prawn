@@ -10,7 +10,6 @@ static char last_play_x = -1;
 static char last_play_y = -1;
 static int opening_book_enabled = 1;
 
-#define PIECE_SCORE_MULTIPLIER 256
 #define NO_SCORE -536870912
 #define CHECK_MATE -536870911
 #define DRAW 536870911
@@ -286,10 +285,6 @@ static void populate_zobrist_masks() {
     for (int t = 0; t < MAX_SEARCH_DEPTH + 1; ++t) {
         zobrist_depth[t] = zobrist_file[item++];
     }
-    // zobrist_depth[2] = zobrist_depth[0];
-    // zobrist_depth[4] = zobrist_depth[0];
-    // zobrist_depth[3] = zobrist_depth[1];
-    // zobrist_depth[5] = zobrist_depth[1];
 
     for (int t = 0; t < 4; ++t) {
         zobrist_castling[t] = zobrist_file[item++];
@@ -628,23 +623,23 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
     switch (to_piece) {
         case 'p':
             board->black_pawns ^= to_mask;
-            score += 1 * PIECE_SCORE_MULTIPLIER;
+            score += 100;
             break;
         case 'n':
             board->black_knights ^= to_mask;
-            score += 3 * PIECE_SCORE_MULTIPLIER;
+            score += 320;
             break;
         case 'b':
             board->black_bishops ^= to_mask;
-            score += 3 * PIECE_SCORE_MULTIPLIER;
+            score += 330;
             break;
         case 'r':
             board->black_rooks ^= to_mask;
-            score += 5 * PIECE_SCORE_MULTIPLIER;
+            score += 500;
             break;
         case 'q':
             board->black_queens ^= to_mask;
-            score += 9 * PIECE_SCORE_MULTIPLIER;
+            score += 900;
             break;
         case 'k':
             board->black_kings ^= to_mask;
@@ -657,7 +652,7 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
         if (en_passant_x == to_x && from_y == 3) {
             hash = update_hash_with_piece_black(hash, 3 * 8 + en_passant_x, 'p');
             board->black_pawns ^= to_mask;
-            score += 1 * PIECE_SCORE_MULTIPLIER;
+            score += 100;
         }
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -677,23 +672,23 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
         }
 
         if (promotion_option == PROMOTION_QUEEN) {
-            // 1 to 9
-            score += 8 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 900
+            score += 800;
             board->white_queens ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'Q');
         } else if (promotion_option == PROMOTION_KNIGHT) {
-            // 1 to 3
-            score += 2 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 320
+            score += 220;
             board->white_knights ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'N');
         } else if (promotion_option == PROMOTION_BISHOP) {
-            // 1 to 3
-            score += 2 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 330
+            score += 230;
             board->white_bishops ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'B');
         } else {
-            // 1 to 5
-            score += 4 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 500
+            score += 400;
             board->white_rooks ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'R');
         }
@@ -751,23 +746,23 @@ static int just_play_white_complex(board_t * board, const play_t * play, int sco
     switch (to_piece) {
         case 'p':
             board->black_pawns ^= to_mask;
-            score += 1 * PIECE_SCORE_MULTIPLIER;
+            score += 100;
             break;
         case 'n':
             board->black_knights ^= to_mask;
-            score += 3 * PIECE_SCORE_MULTIPLIER;
+            score += 320;
             break;
         case 'b':
             board->black_bishops ^= to_mask;
-            score += 3 * PIECE_SCORE_MULTIPLIER;
+            score += 330;
             break;
         case 'r':
             board->black_rooks ^= to_mask;
-            score += 5 * PIECE_SCORE_MULTIPLIER;
+            score += 500;
             break;
         case 'q':
             board->black_queens ^= to_mask;
-            score += 9 * PIECE_SCORE_MULTIPLIER;
+            score += 900;
             break;
         case 'k':
             board->black_kings ^= to_mask;
@@ -890,23 +885,23 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
     switch (to_piece) {
         case 'P':
             board->white_pawns ^= to_mask;
-            score -= 1 * PIECE_SCORE_MULTIPLIER;
+            score -= 100;
             break;
         case 'N':
             board->white_knights ^= to_mask;
-            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            score -= 320;
             break;
         case 'B':
             board->white_bishops ^= to_mask;
-            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            score -= 330;
             break;
         case 'R':
             board->white_rooks ^= to_mask;
-            score -= 5 * PIECE_SCORE_MULTIPLIER;
+            score -= 500;
             break;
         case 'Q':
             board->white_queens ^= to_mask;
-            score -= 9 * PIECE_SCORE_MULTIPLIER;
+            score -= 900;
             break;
         case 'K':
             board->white_kings ^= to_mask;
@@ -919,7 +914,7 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
         if (en_passant_x == to_x && from_y == 4) {
             hash = update_hash_with_piece_white(hash, 4 * 8 + en_passant_x, 'P');
             board->white_pawns ^= to_mask;
-            score += 1 * PIECE_SCORE_MULTIPLIER;
+            score += 100;
         }
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -939,23 +934,23 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
         }
 
         if (promotion_option == PROMOTION_QUEEN) {
-            // 1 to 9
-            score -= 8 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 900
+            score -= 800;
             board->black_queens ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'q');
         } else if (promotion_option == PROMOTION_KNIGHT) {
-            // 1 to 3
-            score -= 2 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 320
+            score -= 220;
             board->black_knights ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'n');
         } else if (promotion_option == PROMOTION_BISHOP) {
-            // 1 to 3
-            score -= 2 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 330
+            score -= 230;
             board->black_bishops ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'b');
         } else {
-            // 1 to 5
-            score -= 4 * PIECE_SCORE_MULTIPLIER;
+            // 100 to 500
+            score -= 400;
             board->black_rooks ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'r');
         }
@@ -1013,23 +1008,23 @@ static int just_play_black_complex(board_t * board, const play_t * play, int sco
     switch (to_piece) {
         case 'P':
             board->white_pawns ^= to_mask;
-            score -= 1 * PIECE_SCORE_MULTIPLIER;
+            score -= 100;
             break;
         case 'N':
             board->white_knights ^= to_mask;
-            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            score -= 320;
             break;
         case 'B':
             board->white_bishops ^= to_mask;
-            score -= 3 * PIECE_SCORE_MULTIPLIER;
+            score -= 330;
             break;
         case 'R':
             board->white_rooks ^= to_mask;
-            score -= 5 * PIECE_SCORE_MULTIPLIER;
+            score -= 500;
             break;
         case 'Q':
             board->white_queens ^= to_mask;
-            score -= 9 * PIECE_SCORE_MULTIPLIER;
+            score -= 900;
             break;
         case 'K':
             board->white_kings ^= to_mask;
