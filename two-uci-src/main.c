@@ -141,6 +141,10 @@ int main(int argc, char * argv[]) {
                 }
 
                 move = buffer + strlen("bestmove ");
+                if (strlen(move) < 5 || strlen(move) > 6) {
+                    total_error++;
+                    break;
+                }
                 sprintf(buffer2, "position moves %s", move);
                 write_line(prog2_inPipe[1], buffer2);
             }
@@ -166,6 +170,10 @@ int main(int argc, char * argv[]) {
             }
 
             move = buffer + strlen("bestmove ");
+            if (strlen(move) < 5 || strlen(move) > 6) {
+                total_error++;
+                break;
+            }
             sprintf(buffer2, "position moves %s", move);
             write_line(prog1_inPipe[1], buffer2);
         }

@@ -286,6 +286,10 @@ static void populate_zobrist_masks() {
     for (int t = 0; t < MAX_SEARCH_DEPTH + 1; ++t) {
         zobrist_depth[t] = zobrist_file[item++];
     }
+    // zobrist_depth[2] = zobrist_depth[0];
+    // zobrist_depth[4] = zobrist_depth[0];
+    // zobrist_depth[3] = zobrist_depth[1];
+    // zobrist_depth[5] = zobrist_depth[1];
 
     for (int t = 0; t < 4; ++t) {
         zobrist_castling[t] = zobrist_file[item++];
@@ -2286,14 +2290,14 @@ static int king_threatened_white(board_t * board) {
     uint64_t king_mask = board->white_kings;
     uint64_t attacked = mask_attacked_positions_by_black(board);
 
-    return attacked & king_mask;
+    return (attacked & king_mask) != 0ULL;
 }
 
 static int king_threatened_black(board_t * board) {
     uint64_t king_mask = board->black_kings;
     uint64_t attacked = mask_attacked_positions_by_white(board);
 
-    return attacked & king_mask;
+    return (attacked & king_mask) != 0ULL;
 }
 
 static int king_threatened(board_t * board) {
@@ -2571,6 +2575,39 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
     return best_score;
 }
 
+static int is_game_drawn() {
+    if (board.white_queens || board.black_queens || board.white_rooks || board.black_rooks || board.white_pawns || board.black_pawns) {
+        return 0;
+    }
+
+    int white_knights = __builtin_popcountll(board.white_knights);
+    int black_knights = __builtin_popcountll(board.black_knights);
+    int white_bishops = __builtin_popcountll(board.white_bishops);
+    int black_bishops = __builtin_popcountll(board.black_bishops);
+
+    if (white_knights <= 2 && black_knights == 0 && black_bishops <= 1) {
+        return 1;
+    }
+    if (black_knights <= 2 && white_knights == 0 && white_bishops <= 1) {
+        return 1;
+    }
+    if (white_bishops <= 1 && black_knights <= 2 && black_bishops == 0) {
+        return 1;
+    }
+    if (black_bishops <= 1 && white_knights <= 2 && white_bishops == 0) {
+        return 1;
+    }
+    return 0;
+}
+
+static int is_game_winnable_white() {
+    return ((board.white_queens || board.white_rooks) && !(board.black_queens || board.black_rooks || board.black_bishops || board.black_knights));
+}
+
+static int is_game_winnable_black() {
+    return ((board.black_queens || board.black_rooks) && !(board.white_queens || board.white_rooks || board.white_bishops || board.white_knights));
+}
+
 static int ai_play(play_t * play) {
     if (opening_book_enabled) {
         uint64_t board_hash = hash_from_board(&board);
@@ -2580,6 +2617,10 @@ static int ai_play(play_t * play) {
             return 1;
         }
     }
+    if (is_game_drawn()) {
+        return DRAW;
+    }
+    int allowed_to_force_a_draw = !(board.color == WHITE_COLOR ? is_game_winnable_white() : is_game_winnable_black());
 
     play_t valid_plays[218];
     board_t board_cpy;
@@ -2625,6 +2666,10 @@ static int ai_play(play_t * play) {
             } else {
                 score = minimax_black(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy));
             }
+        }
+
+        if (!allowed_to_force_a_draw && (score == 10000000 || score == -10000000)) {
+            continue;
         }
 
         if (score != NO_SCORE) {
