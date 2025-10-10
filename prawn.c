@@ -2379,9 +2379,8 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
         int64_t this_hash = hash;
 
         int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-        int score_extra = valid_plays_i / 2;
 
-        score = minimax_black(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
+        score = minimax_black(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score + valid_plays_i : score, this_hash);
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score > best_score) {
@@ -2405,9 +2404,8 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
             int64_t this_hash = hash;
 
             int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-            int score_extra = valid_plays_i / 2;
 
-            score = minimax_black(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
+            score = minimax_black(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score + valid_plays_i : score, this_hash);
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score > best_score) {
@@ -2511,9 +2509,8 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
         int64_t this_hash = hash;
 
         int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-        int score_extra = -valid_plays_i / 2;
 
-        score = minimax_white(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
+        score = minimax_white(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score - valid_plays_i : score, this_hash);
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score < best_score) {
@@ -2537,9 +2534,8 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
             int64_t this_hash = hash;
 
             int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-            int score_extra = -valid_plays_i / 2;
 
-            score = minimax_white(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
+            score = minimax_white(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score - valid_plays_i : score, this_hash);
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score < best_score) {
@@ -2640,7 +2636,6 @@ static int ai_play(play_t * play) {
         memcpy(&board_cpy, &board, sizeof(board_t));
 
         int score = board_cpy.color == WHITE_COLOR ? just_play_white_complex(&board_cpy, &valid_plays[i], 0, 0, &hash) : just_play_black_complex(&board_cpy, &valid_plays[i], 0, 0, &hash);
-        int score_extra = (board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i) / 2;
 
         board_to_short_string(buffer, &board_cpy);
 
@@ -2658,9 +2653,9 @@ static int ai_play(play_t * play) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
             if (board_cpy.color == WHITE_COLOR) {
-                score = minimax_white(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy));
+                score = minimax_white(&board_cpy, 0, alpha, beta, score, hash_from_board(&board_cpy));
             } else {
-                score = minimax_black(&board_cpy, 0, alpha, beta, score + score_extra, hash_from_board(&board_cpy));
+                score = minimax_black(&board_cpy, 0, alpha, beta, score, hash_from_board(&board_cpy));
             }
         }
 
