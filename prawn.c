@@ -2379,7 +2379,7 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
         int64_t this_hash = hash;
 
         int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-        int score_extra = valid_plays_i;
+        int score_extra = valid_plays_i / 2;
 
         score = minimax_black(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -2405,7 +2405,7 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
             int64_t this_hash = hash;
 
             int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-            int score_extra = valid_plays_i;
+            int score_extra = valid_plays_i / 2;
 
             score = minimax_black(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -2511,7 +2511,7 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
         int64_t this_hash = hash;
 
         int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-        int score_extra = -valid_plays_i;
+        int score_extra = -valid_plays_i / 2;
 
         score = minimax_white(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -2537,7 +2537,7 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
             int64_t this_hash = hash;
 
             int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
-            int score_extra = -valid_plays_i;
+            int score_extra = -valid_plays_i / 2;
 
             score = minimax_white(&board_cpy, depth + 1, alpha, beta, score + score_extra, this_hash);
 
@@ -2640,7 +2640,7 @@ static int ai_play(play_t * play) {
         memcpy(&board_cpy, &board, sizeof(board_t));
 
         int score = board_cpy.color == WHITE_COLOR ? just_play_white_complex(&board_cpy, &valid_plays[i], 0, 0, &hash) : just_play_black_complex(&board_cpy, &valid_plays[i], 0, 0, &hash);
-        int score_extra = board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i;
+        int score_extra = (board.color == WHITE_COLOR ? valid_plays_i : -valid_plays_i) / 2;
 
         board_to_short_string(buffer, &board_cpy);
 
