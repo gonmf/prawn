@@ -1,0 +1,7 @@
+# TODO
+
+- Test improved score evaluation function.
+- In text interface, accept input in d4, Bd8, etc notation instead of d2d4.
+- In text interface, show list of past moves in new notation, instead of just showing board.
+- In text interface, support move undo.
+- Refactor program into separate files for opening books, zobrist hashing, minimax search, etc.
