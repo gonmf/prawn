@@ -2264,16 +2264,134 @@ static int king_threatened(board_t * board) {
 }
 
 static int estimate_board_score(const board_t * board) {
-    return 900 * __builtin_popcountll(board->white_queens) +
-           500 * __builtin_popcountll(board->white_rooks) +
-           330 * __builtin_popcountll(board->white_bishops) +
-           320 * __builtin_popcountll(board->white_knights) +
-           100 * __builtin_popcountll(board->white_pawns) -
-           900 * __builtin_popcountll(board->black_queens) -
-           500 * __builtin_popcountll(board->black_rooks) -
-           330 * __builtin_popcountll(board->black_bishops) -
-           320 * __builtin_popcountll(board->black_knights) -
-           100 * __builtin_popcountll(board->black_pawns);
+    int score = 0;
+
+    const int pawn_pst[64] = {
+         0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        10, 10, 20, 30, 30, 20, 10, 10,
+         5,  5, 10, 25, 25, 10,  5,  5,
+         0,  0,  0, 20, 20,  0,  0,  0,
+         5, -5,-10,  0,  0,-10, -5,  5,
+         5, 10, 10,-20,-20, 10, 10,  5,
+         0,  0,  0,  0,  0,  0,  0,  0
+    };
+
+    uint64_t pawns = board->white_pawns;
+    while (pawns) {
+        int sq = __builtin_ctzll(pawns);
+        score += 100 + pawn_pst[sq];
+        pawns &= pawns - 1;
+    }
+
+    pawns = board->black_pawns;
+    while (pawns) {
+        int sq = __builtin_ctzll(pawns);
+        score -= 100 + pawn_pst[63 - sq];
+        pawns &= pawns - 1;
+    }
+
+    const int knight_pst[64] = {
+      -50,-40,-30,-30,-30,-30,-40,-50,
+      -40,-20,  0,  0,  0,  0,-20,-40,
+      -30,  0, 10, 15, 15, 10,  0,-30,
+      -30,  5, 15, 20, 20, 15,  5,-30,
+      -30,  0, 15, 20, 20, 15,  0,-30,
+      -30,  5, 10, 15, 15, 10,  5,-30,
+      -40,-20,  0,  5,  5,  0,-20,-40,
+      -50,-40,-30,-30,-30,-30,-40,-50
+    };
+
+    uint64_t knights = board->white_knights;
+    while (knights) {
+        int sq = __builtin_ctzll(knights);
+        score += 320 + knight_pst[sq];
+        knights &= knights - 1;
+    }
+
+    knights = board->black_knights;
+    while (knights) {
+        int sq = __builtin_ctzll(knights);
+        score -= 320 + knight_pst[63 - sq];
+        knights &= knights - 1;
+    }
+
+    const int bishop_pst[64] = {
+      -20,-10,-10,-10,-10,-10,-10,-20,
+      -10,  0,  0,  0,  0,  0,  0,-10,
+      -10,  0,  5, 10, 10,  5,  0,-10,
+      -10,  5,  5, 10, 10,  5,  5,-10,
+      -10,  0, 10, 10, 10, 10,  0,-10,
+      -10,  5,  5, 10, 10,  5,  5,-10,
+      -10,  0,  0,  0,  0,  0,  0,-10,
+      -20,-10,-10,-10,-10,-10,-10,-20
+    };
+
+    uint64_t bishops = board->white_bishops;
+    while (bishops) {
+        int sq = __builtin_ctzll(bishops);
+        score += 330 + bishop_pst[sq];
+        bishops &= bishops - 1;
+    }
+
+    bishops = board->black_bishops;
+    while (bishops) {
+        int sq = __builtin_ctzll(bishops);
+        score -= 330 + bishop_pst[63 - sq];
+        bishops &= bishops - 1;
+    }
+
+    const int rook_pst[64] = {
+       0,  0,  0,  0,  0,  0,  0,  0,
+       5, 10, 10, 10, 10, 10, 10,  5,
+      -5,  0,  0,  0,  0,  0,  0, -5,
+      -5,  0,  0,  0,  0,  0,  0, -5,
+      -5,  0,  0,  0,  0,  0,  0, -5,
+      -5,  0,  0,  0,  0,  0,  0, -5,
+      -5,  0,  0,  0,  0,  0,  0, -5,
+       0,  0,  0,  5,  5,  0,  0,  0
+    };
+
+    uint64_t rooks = board->white_rooks;
+    while (rooks) {
+        int sq = __builtin_ctzll(rooks);
+        score += 500 + rook_pst[sq];
+        rooks &= rooks - 1;
+    }
+
+    rooks = board->black_rooks;
+    while (rooks) {
+        int sq = __builtin_ctzll(rooks);
+        score -= 500 + rook_pst[63 - sq];
+        rooks &= rooks - 1;
+    }
+
+    const int queen_pst[64] = {
+      -20,-10,-10, -5, -5,-10,-10,-20,
+      -10,  0,  5,  0,  0,  0,  0,-10,
+      -10,  0,  5,  5,  5,  5,  0,-10,
+       -5,  0,  5,  5,  5,  5,  0, -5,
+        0,  0,  5,  5,  5,  5,  0, -5,
+      -10,  0,  5,  5,  5,  5,  0,-10,
+      -10,  0,  0,  0,  0,  0,  0,-10,
+      -20,-10,-10, -5, -5,-10,-10,-20
+    };
+
+    uint64_t queens = board->white_queens;
+    while (queens) {
+        int sq = __builtin_ctzll(queens);
+        score += 900 + queen_pst[sq];
+        queens &= queens - 1;
+    }
+
+    queens = board->black_queens;
+    while (queens) {
+        int sq = __builtin_ctzll(queens);
+        score -= 900 + queen_pst[63 - sq];
+        queens &= queens - 1;
+    }
+
+    return score;
 }
 
 static int minimax_black(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash);
