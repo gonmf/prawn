@@ -593,7 +593,7 @@ static void just_play_black_simple(board_t * board, const play_t * play) {
     }
 }
 
-static int just_play_white_pawn(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+static void just_play_white_pawn(board_t * board, const play_t * play, int depth, int64_t * out_hash) {
     int from_x = play->from_x;
     int from_y = play->from_y;
     int to_x = play->to_x;
@@ -623,23 +623,18 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
     switch (to_piece) {
         case 'p':
             board->black_pawns ^= to_mask;
-            score += 100;
             break;
         case 'n':
             board->black_knights ^= to_mask;
-            score += 320;
             break;
         case 'b':
             board->black_bishops ^= to_mask;
-            score += 330;
             break;
         case 'r':
             board->black_rooks ^= to_mask;
-            score += 500;
             break;
         case 'q':
             board->black_queens ^= to_mask;
-            score += 900;
             break;
         case 'k':
             board->black_kings ^= to_mask;
@@ -652,7 +647,6 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
         if (en_passant_x == to_x && from_y == 3) {
             hash = update_hash_with_piece_black(hash, 3 * 8 + en_passant_x, 'p');
             board->black_pawns ^= 1ULL << (3 * 8 + en_passant_x);
-            score += 100;
         }
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -672,23 +666,15 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
         }
 
         if (promotion_option == PROMOTION_QUEEN) {
-            // 100 to 900
-            score += 800;
             board->white_queens ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'Q');
         } else if (promotion_option == PROMOTION_KNIGHT) {
-            // 100 to 320
-            score += 220;
             board->white_knights ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'N');
         } else if (promotion_option == PROMOTION_BISHOP) {
-            // 100 to 330
-            score += 230;
             board->white_bishops ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'B');
         } else {
-            // 100 to 500
-            score += 400;
             board->white_rooks ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'R');
         }
@@ -705,17 +691,17 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
     board->color = BLACK_COLOR;
 
     *out_hash = hash;
-    return score;
 }
 
-static int just_play_white_complex(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+static void just_play_white_complex(board_t * board, const play_t * play, int depth, int64_t * out_hash) {
     char from_x = play->from_x;
     char from_y = play->from_y;
     int from_p = from_y * 8 + from_x;
 
     char from_piece = identify_piece_white(board, from_p);
     if (from_piece == 'P') {
-        return just_play_white_pawn(board, play, score, depth, out_hash);
+        just_play_white_pawn(board, play, depth, out_hash);
+        return;
     }
 
     char to_x = play->to_x;
@@ -746,23 +732,18 @@ static int just_play_white_complex(board_t * board, const play_t * play, int sco
     switch (to_piece) {
         case 'p':
             board->black_pawns ^= to_mask;
-            score += 100;
             break;
         case 'n':
             board->black_knights ^= to_mask;
-            score += 320;
             break;
         case 'b':
             board->black_bishops ^= to_mask;
-            score += 330;
             break;
         case 'r':
             board->black_rooks ^= to_mask;
-            score += 500;
             break;
         case 'q':
             board->black_queens ^= to_mask;
-            score += 900;
             break;
         case 'k':
             board->black_kings ^= to_mask;
@@ -852,10 +833,9 @@ static int just_play_white_complex(board_t * board, const play_t * play, int sco
     board->color = BLACK_COLOR;
 
     *out_hash = hash;
-    return score;
 }
 
-static int just_play_black_pawn(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+static void just_play_black_pawn(board_t * board, const play_t * play, int depth, int64_t * out_hash) {
     int from_x = play->from_x;
     int from_y = play->from_y;
     int to_x = play->to_x;
@@ -885,23 +865,18 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
     switch (to_piece) {
         case 'P':
             board->white_pawns ^= to_mask;
-            score -= 100;
             break;
         case 'N':
             board->white_knights ^= to_mask;
-            score -= 320;
             break;
         case 'B':
             board->white_bishops ^= to_mask;
-            score -= 330;
             break;
         case 'R':
             board->white_rooks ^= to_mask;
-            score -= 500;
             break;
         case 'Q':
             board->white_queens ^= to_mask;
-            score -= 900;
             break;
         case 'K':
             board->white_kings ^= to_mask;
@@ -914,7 +889,6 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
         if (en_passant_x == to_x && from_y == 4) {
             hash = update_hash_with_piece_white(hash, 4 * 8 + en_passant_x, 'P');
             board->white_pawns ^= 1ULL << (4 * 8 + en_passant_x);
-            score -= 100;
         }
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -934,23 +908,15 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
         }
 
         if (promotion_option == PROMOTION_QUEEN) {
-            // 100 to 900
-            score -= 800;
             board->black_queens ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'q');
         } else if (promotion_option == PROMOTION_KNIGHT) {
-            // 100 to 320
-            score -= 220;
             board->black_knights ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'n');
         } else if (promotion_option == PROMOTION_BISHOP) {
-            // 100 to 330
-            score -= 230;
             board->black_bishops ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'b');
         } else {
-            // 100 to 500
-            score -= 400;
             board->black_rooks ^= to_mask;
             hash = update_hash_with_piece(hash, to_p, 'r');
         }
@@ -967,17 +933,17 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
     board->color = WHITE_COLOR;
 
     *out_hash = hash;
-    return score;
 }
 
-static int just_play_black_complex(board_t * board, const play_t * play, int score, int depth, int64_t * out_hash) {
+static void just_play_black_complex(board_t * board, const play_t * play, int depth, int64_t * out_hash) {
     char from_x = play->from_x;
     char from_y = play->from_y;
     int from_p = from_y * 8 + from_x;
 
     char from_piece = identify_piece_black(board, from_p);
     if (from_piece == 'p') {
-        return just_play_black_pawn(board, play, score, depth, out_hash);
+        just_play_black_pawn(board, play, depth, out_hash);
+        return;
     }
 
     char to_x = play->to_x;
@@ -1008,23 +974,18 @@ static int just_play_black_complex(board_t * board, const play_t * play, int sco
     switch (to_piece) {
         case 'P':
             board->white_pawns ^= to_mask;
-            score -= 100;
             break;
         case 'N':
             board->white_knights ^= to_mask;
-            score -= 320;
             break;
         case 'B':
             board->white_bishops ^= to_mask;
-            score -= 330;
             break;
         case 'R':
             board->white_rooks ^= to_mask;
-            score -= 500;
             break;
         case 'Q':
             board->white_queens ^= to_mask;
-            score -= 900;
             break;
         case 'K':
             board->white_kings ^= to_mask;
@@ -1114,7 +1075,6 @@ static int just_play_black_complex(board_t * board, const play_t * play, int sco
     board->color = WHITE_COLOR;
 
     *out_hash = hash;
-    return score;
 }
 
 static void actual_play(const play_t * play) {
@@ -1137,9 +1097,9 @@ static void actual_play(const play_t * play) {
 
     int64_t hash = 0;
     if (board.color == WHITE_COLOR) {
-        just_play_white_complex(&board, play, 0, 0, &hash);
+        just_play_white_complex(&board, play, 0, &hash);
     } else {
-        just_play_black_complex(&board, play, 0, 0, &hash);
+        just_play_black_complex(&board, play, 0, &hash);
     }
 }
 
@@ -2346,6 +2306,7 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
     }
 
     if (depth == MAX_SEARCH_DEPTH) {
+        initial_score += estimate_board_score(board);
         if (!found) {
             int score_w_type = (initial_score << 2) | TYPE_EXACT;
             hash_table_insert(hash, score_w_type);
@@ -2391,9 +2352,9 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
-        int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
+        just_play_white_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-        score = minimax_black(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score + valid_plays_i : score, this_hash);
+        int score = minimax_black(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? +valid_plays_i : 0, this_hash);
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score > best_score) {
@@ -2416,9 +2377,9 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = hash;
 
-            int score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
+            just_play_white_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-            score = minimax_black(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score + valid_plays_i : score, this_hash);
+            int score = minimax_black(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? +valid_plays_i : 0, this_hash);
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score > best_score) {
@@ -2477,6 +2438,7 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
     }
 
     if (depth == MAX_SEARCH_DEPTH) {
+        initial_score += estimate_board_score(board);
         if (!found) {
             int score_w_type = (initial_score << 2) | TYPE_EXACT;
             hash_table_insert(hash, score_w_type);
@@ -2521,9 +2483,9 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
-        int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
+        just_play_black_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-        score = minimax_white(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score - valid_plays_i : score, this_hash);
+        int score = minimax_white(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? -valid_plays_i : 0, this_hash);
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score < best_score) {
@@ -2546,9 +2508,9 @@ static int minimax_black(board_t * board, int depth, int alpha, int beta, int in
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = hash;
 
-            int score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, depth, &this_hash);
+            just_play_black_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-            score = minimax_white(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? score - valid_plays_i : score, this_hash);
+            int score = minimax_white(&board_cpy, depth + 1, alpha, beta, depth + 1 == MAX_SEARCH_DEPTH ? -valid_plays_i : 0, this_hash);
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score < best_score) {
@@ -2644,16 +2606,14 @@ static int ai_play(play_t * play) {
     int best_play = 0;
     bzero(hash_table, HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
     int64_t hash = 0;
-    int initial_score = estimate_board_score(&board);
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
 
-        int score;
         if (board_cpy.color == WHITE_COLOR) {
-            score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, 0, &hash);
+            just_play_white_complex(&board_cpy, &valid_plays[i], 0, &hash);
         } else {
-            score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, 0, &hash);
+            just_play_black_complex(&board_cpy, &valid_plays[i], 0, &hash);
         }
 
         board_to_short_string(buffer, &board_cpy);
@@ -2668,13 +2628,14 @@ static int ai_play(play_t * play) {
             }
         }
 
+        int score;
         if (position_repeated == 2) {
             score = board_cpy.color == WHITE_COLOR ? 10000000 + 5 * 128 : -10000000 - 5 * 128;
         } else {
             if (board_cpy.color == WHITE_COLOR) {
-                score = minimax_white(&board_cpy, 0, alpha, beta, score, hash_from_board(&board_cpy));
+                score = minimax_white(&board_cpy, 0, alpha, beta, 0, hash_from_board(&board_cpy));
             } else {
-                score = minimax_black(&board_cpy, 0, alpha, beta, score, hash_from_board(&board_cpy));
+                score = minimax_black(&board_cpy, 0, alpha, beta, 0, hash_from_board(&board_cpy));
             }
         }
 
