@@ -651,7 +651,7 @@ static int just_play_white_pawn(board_t * board, const play_t * play, int score,
     if (en_passant_x != NO_EN_PASSANT) {
         if (en_passant_x == to_x && from_y == 3) {
             hash = update_hash_with_piece_black(hash, 3 * 8 + en_passant_x, 'p');
-            board->black_pawns ^= to_mask;
+            board->black_pawns ^= 1ULL << (3 * 8 + en_passant_x);
             score += 100;
         }
         hash ^= zobrist_en_passant[en_passant_x];
@@ -721,7 +721,6 @@ static int just_play_white_complex(board_t * board, const play_t * play, int sco
     char to_x = play->to_x;
     char to_y = play->to_y;
     int to_p = to_y * 8 + to_x;
-    int en_passant_x = board->en_passant_x;
 
     char to_piece = identify_piece_black(board, to_p);
 
@@ -732,6 +731,7 @@ static int just_play_white_complex(board_t * board, const play_t * play, int sco
         hash = update_hash_with_piece_black(hash, to_p, to_piece);
     }
 
+    int en_passant_x = board->en_passant_x;
     if (en_passant_x != NO_EN_PASSANT) {
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -913,8 +913,8 @@ static int just_play_black_pawn(board_t * board, const play_t * play, int score,
     if (en_passant_x != NO_EN_PASSANT) {
         if (en_passant_x == to_x && from_y == 4) {
             hash = update_hash_with_piece_white(hash, 4 * 8 + en_passant_x, 'P');
-            board->white_pawns ^= to_mask;
-            score += 100;
+            board->white_pawns ^= 1ULL << (4 * 8 + en_passant_x);
+            score -= 100;
         }
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -983,7 +983,6 @@ static int just_play_black_complex(board_t * board, const play_t * play, int sco
     char to_x = play->to_x;
     char to_y = play->to_y;
     int to_p = to_y * 8 + to_x;
-    int en_passant_x = board->en_passant_x;
 
     char to_piece = identify_piece_white(board, to_p);
 
@@ -994,6 +993,7 @@ static int just_play_black_complex(board_t * board, const play_t * play, int sco
         hash = update_hash_with_piece_white(hash, to_p, to_piece);
     }
 
+    int en_passant_x = board->en_passant_x;
     if (en_passant_x != NO_EN_PASSANT) {
         hash ^= zobrist_en_passant[en_passant_x];
         board->en_passant_x = NO_EN_PASSANT;
@@ -2303,6 +2303,19 @@ static int king_threatened(board_t * board) {
     }
 }
 
+static int estimate_board_score(const board_t * board) {
+    return 900 * __builtin_popcountll(board->white_queens) +
+           500 * __builtin_popcountll(board->white_rooks) +
+           330 * __builtin_popcountll(board->white_bishops) +
+           320 * __builtin_popcountll(board->white_knights) +
+           100 * __builtin_popcountll(board->white_pawns) -
+           900 * __builtin_popcountll(board->black_queens) -
+           500 * __builtin_popcountll(board->black_rooks) -
+           330 * __builtin_popcountll(board->black_bishops) -
+           320 * __builtin_popcountll(board->black_knights) -
+           100 * __builtin_popcountll(board->black_pawns);
+}
+
 static int minimax_black(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash);
 
 static int minimax_white(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
@@ -2631,11 +2644,17 @@ static int ai_play(play_t * play) {
     int best_play = 0;
     bzero(hash_table, HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
     int64_t hash = 0;
+    int initial_score = estimate_board_score(&board);
 
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
 
-        int score = board_cpy.color == WHITE_COLOR ? just_play_white_complex(&board_cpy, &valid_plays[i], 0, 0, &hash) : just_play_black_complex(&board_cpy, &valid_plays[i], 0, 0, &hash);
+        int score;
+        if (board_cpy.color == WHITE_COLOR) {
+            score = just_play_white_complex(&board_cpy, &valid_plays[i], initial_score, 0, &hash);
+        } else {
+            score = just_play_black_complex(&board_cpy, &valid_plays[i], initial_score, 0, &hash);
+        }
 
         board_to_short_string(buffer, &board_cpy);
 
