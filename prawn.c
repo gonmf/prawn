@@ -28,6 +28,7 @@ static hash_table_entry_t * hash_table;
 
 static unsigned int opening_book_size;
 static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
+static char ob_play_colors[MAX_SUPPORTED_OB_RULES];
 static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 
 static int opening_book_enabled = 1;
@@ -68,6 +69,8 @@ static void init_opening_book() {
                 continue;
             }
 
+            char color = board.color;
+
             if (plays_found == -1) {
                 play.from_x = token[0] - 'a';
                 play.from_y = '8' - token[1];
@@ -82,6 +85,7 @@ static void init_opening_book() {
             ob_plays[opening_book_size][plays_found].from_y = '8' - token[1];
             ob_plays[opening_book_size][plays_found].to_x = token[2] - 'a';
             ob_plays[opening_book_size][plays_found].to_y = '8' - token[3];
+            ob_play_colors[opening_book_size] = color;
             plays_found++;
         }
 
@@ -99,7 +103,7 @@ static void init_opening_book() {
 
 static int get_opening_book_play(play_t * play, uint64_t board_hash) {
     for (unsigned int i = 0; i < opening_book_size; ++i) {
-        if (board_hash == opening_book[i]) {
+        if (board_hash == opening_book[i] && ob_play_colors[i] == board.color) {
             int play_picked = rand() % 4;
 
             play->from_x = ob_plays[i][play_picked].from_x;
@@ -403,6 +407,27 @@ static int64_t hash_from_board(const board_t * board) {
 static void fprint_board(FILE * fd, const board_t * board, const board_ext_t * board_ext) {
     board_to_fen(buffer, board, board_ext);
     fprintf(fd, "%s\n", buffer);
+    int line_len = 0;
+
+    for (unsigned int i = 0; i < board_ext->past_plays_count; ++i) {
+        if ((i & 1) == 0) {
+            if (line_len > 68) {
+                fprintf(fd, "\n");
+                line_len = 0;
+            }
+            if (line_len == 0) {
+                line_len += fprintf(fd, "%d.", i / 2 + 1);
+            } else {
+                line_len += fprintf(fd, " %d.", i / 2 + 1);
+            }
+        }
+        line_len += fprintf(fd, " %c%d%c%d", 'a' + board_ext->past_plays[i].from_x, 8 - board_ext->past_plays[i].from_y, 'a' + board_ext->past_plays[i].to_x, 8 - board_ext->past_plays[i].to_y);
+
+    }
+    if (line_len > 0) {
+        fprintf(fd, "\n");
+    }
+
     fprintf(fd, "╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
         fprintf(fd, "║ ");
