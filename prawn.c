@@ -2,13 +2,8 @@
 
 static char buffer[1024];
 
-static char past_positions[256][56];
-static unsigned int past_plays_count;
 static board_t board;
-static unsigned int fullmoves;
-static char last_play_x = -1;
-static char last_play_y = -1;
-static int opening_book_enabled = 1;
+static board_ext_t board_ext;
 
 #define NO_SCORE -536870912
 #define CHECK_MATE -536870911
@@ -35,8 +30,9 @@ static unsigned int opening_book_size;
 static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
 static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 
-static int extend_uci;
-static int uci_game_in_error_state;
+static int opening_book_enabled = 1;
+static int extend_uci = 0;
+static int uci_game_in_error_state = 0;
 
 static void reset_board();
 static void actual_play(const play_t * play);
@@ -404,14 +400,14 @@ static int64_t hash_from_board(const board_t * board) {
     return hash;
 }
 
-static void fprint_board(FILE * fd, const board_t * board) {
-    board_to_fen(buffer, board, fullmoves);
+static void fprint_board(FILE * fd, const board_t * board, const board_ext_t * board_ext) {
+    board_to_fen(buffer, board, board_ext);
     fprintf(fd, "%s\n", buffer);
     fprintf(fd, "╔═══╤═══╤═══╤═══╤═══╤═══╤═══╤═══╗┈╮\n");
     for (int y = 0; y < 8; y++) {
         fprintf(fd, "║ ");
         for (int x = 0; x < 8; x++) {
-            if (x == last_play_x && y == last_play_y) {
+            if (x == board_ext->last_play_x && y == board_ext->last_play_y) {
                 fprintf(fd, "\033[32m%c\e[0m", identify_piece(board, y * 8 + x));
             } else {
                 fprintf(fd, "%c", identify_piece(board, y * 8 + x));
@@ -431,8 +427,8 @@ static void fprint_board(FILE * fd, const board_t * board) {
     fprintf(fd, "╰┈a┈┈┈b┈┈┈c┈┈┈d┈┈┈e┈┈┈f┈┈┈g┈┈┈h┈┈┈╯\n\n");
 }
 
-static void print_board(const board_t * board) {
-    fprint_board(stdout, board);
+static void print_board(const board_t * board, const board_ext_t * board_ext) {
+    fprint_board(stdout, board, board_ext);
 }
 
 static void just_play_white_simple(board_t * board, const play_t * play) {
@@ -1078,8 +1074,14 @@ static void just_play_black_complex(board_t * board, const play_t * play, int de
 }
 
 static void actual_play(const play_t * play) {
-    if (past_plays_count < 256) {
-        board_to_short_string(past_positions[past_plays_count++], &board);
+    if (board_ext.past_plays_count < 256) {
+        board_ext.past_plays[board_ext.past_plays_count].from_x = play->from_x;
+        board_ext.past_plays[board_ext.past_plays_count].from_y = play->from_y;
+        board_ext.past_plays[board_ext.past_plays_count].to_x = play->to_x;
+        board_ext.past_plays[board_ext.past_plays_count].to_y = play->to_y;
+        board_ext.past_plays[board_ext.past_plays_count].promotion_option = play->promotion_option;
+        board_to_short_string(board_ext.past_positions[board_ext.past_plays_count], &board);
+        board_ext.past_plays_count++;
     }
 
     char moving_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
@@ -1089,10 +1091,10 @@ static void actual_play(const play_t * play) {
         board.halfmoves++;
     }
 
-    last_play_x = play->to_x;
-    last_play_y = play->to_y;
+    board_ext.last_play_x = play->to_x;
+    board_ext.last_play_y = play->to_y;
     if (board.color == BLACK_COLOR) {
-        fullmoves++;
+        board_ext.fullmoves++;
     }
 
     int64_t hash = 0;
@@ -2241,21 +2243,21 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
     }
 }
 
-static int king_threatened_white(board_t * board) {
+static int king_threatened_white(const board_t * board) {
     uint64_t king_mask = board->white_kings;
     uint64_t attacked = mask_attacked_positions_by_black(board);
 
     return (attacked & king_mask) != 0ULL;
 }
 
-static int king_threatened_black(board_t * board) {
+static int king_threatened_black(const board_t * board) {
     uint64_t king_mask = board->black_kings;
     uint64_t attacked = mask_attacked_positions_by_white(board);
 
     return (attacked & king_mask) != 0ULL;
 }
 
-static int king_threatened(board_t * board) {
+static int king_threatened(const board_t * board) {
     if (board->color == WHITE_COLOR) {
         return king_threatened_white(board);
     } else {
@@ -2394,9 +2396,9 @@ static int estimate_board_score(const board_t * board) {
     return score;
 }
 
-static int minimax_black(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash);
+static int minimax_black(const board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash);
 
-static int minimax_white(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
+static int minimax_white(const board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
     if (board->halfmoves == 100) {
         return -10000000 - depth * 128;
     }
@@ -2528,7 +2530,7 @@ static int minimax_white(board_t * board, int depth, int alpha, int beta, int in
     return best_score;
 }
 
-static int minimax_black(board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
+static int minimax_black(const board_t * board, int depth, int alpha, int beta, int initial_score, int64_t hash) {
     if (board->halfmoves == 100) {
         return 10000000 + depth * 128;
     }
@@ -2737,8 +2739,8 @@ static int ai_play(play_t * play) {
         board_to_short_string(buffer, &board_cpy);
 
         int position_repeated = 0;
-        for (unsigned int pos = 0; pos < past_plays_count; ++pos) {
-            if (strcmp(past_positions[pos], buffer) == 0) {
+        for (unsigned int pos = 0; pos < board_ext.past_plays_count; ++pos) {
+            if (strcmp(board_ext.past_positions[pos], buffer) == 0) {
                 position_repeated++;
                 if (position_repeated == 2) {
                     break;
@@ -2818,6 +2820,7 @@ static char input_promotion_piece() {
 }
 
 static char * read_play(play_t * play, char * str) {
+    play->promotion_option = 0;
     if (str[0] >= 'a' && str[0] <= 'h') {
         play->from_x = str[0] - 'a';
     } else {
@@ -2868,14 +2871,31 @@ static char * read_play(play_t * play, char * str) {
     return NULL;
 }
 
-static void input_play(play_t * play, const play_t * valid_plays, int valid_plays_i) {
+static void undo_last_plays() {
+    unsigned past_plays = board_ext.past_plays_count - 2;
+    reset_board();
+    for (unsigned int i = 0; i < past_plays; ++i) {
+        actual_play(&board_ext.past_plays[i]);
+    }
+    board_ext.past_plays_count = past_plays;
+}
+
+static int input_play(play_t * play, const play_t * valid_plays, int valid_plays_i) {
     while (1) {
         printf("Input (example: e2e4): ");
         fgets(buffer, 1024, stdin);
 
-        buffer[4] = 0;
-        if (strcmp(buffer, "quit") == 0) {
+        buffer[5] = 0;
+        if (strcmp(buffer, "quit\n") == 0) {
             exit(EXIT_FAILURE);
+        }
+        if (strcmp(buffer, "undo\n") == 0) {
+            if (board_ext.past_plays_count >= 2 && board_ext.past_plays_count < 256) {
+                undo_last_plays();
+                return 0;
+            } else {
+                printf("Undo is not possible from this position.\n");
+            }
         }
         char * input_is_valid = read_play(play, buffer);
 
@@ -2892,16 +2912,18 @@ static void input_play(play_t * play, const play_t * valid_plays, int valid_play
                 }
             }
             if (play_is_valid) {
-                char from_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
-                play->promotion_option = 0;
-                if (play->from_y == 1 && play->to_y == 0 && from_piece == 'P') {
-                    play->promotion_option = input_promotion_piece();
-                } else if (play->from_y == 6 && play->to_y == 7 && from_piece == 'p') {
-                    play->promotion_option = input_promotion_piece();
+                if (play->promotion_option != 0) {
+                    char from_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
+                    play->promotion_option = 0;
+                    if (play->from_y == 1 && play->to_y == 0 && from_piece == 'P') {
+                        play->promotion_option = input_promotion_piece();
+                    } else if (play->from_y == 6 && play->to_y == 7 && from_piece == 'p') {
+                        play->promotion_option = input_promotion_piece();
+                    }
                 }
 
                 printf("\n");
-                return;
+                return 1;
             } else {
                 printf("\nInvalid play.\n\n");
             }
@@ -2951,9 +2973,9 @@ static void reset_board() {
     board.black_right_castling = 1;
     board.color = WHITE_COLOR;
     board.halfmoves = 0;
-    fullmoves = 0;
-    past_plays_count = 0;
-    last_play_x = -1;
+    board_ext.fullmoves = 0;
+    board_ext.past_plays_count = 0;
+    board_ext.last_play_x = -1;
 }
 
 static void send_uci_command(FILE * fd, const char * str) {
@@ -2967,7 +2989,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
     play_t valid_plays[218];
 
     while (1) {
-        print_board(&board);
+        print_board(&board, &board_ext);
         printf("%s to play...\n\n", board.color == WHITE_COLOR ? "White" : "Black");
 
         if (board.white_kings == 0 || board.black_kings == 0) {
@@ -2989,8 +3011,10 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
             }
 
             play_t play;
-            input_play(&play, valid_plays, valid_plays_i);
-            actual_play(&play);
+            int played = input_play(&play, valid_plays, valid_plays_i);
+            if (played) {
+                actual_play(&play);
+            }
         } else {
             play_t play;
             int played = ai_play(&play);
@@ -3098,7 +3122,7 @@ static void uci_mode(FILE * fd) {
             } else {
                 str = strstr(buffer, " fen ");
                 if (str) {
-                    fen_to_board(&board, &fullmoves, str + strlen(" fen "));
+                    fen_to_board(&board, &board_ext, str + strlen(" fen "));
                     uci_game_in_error_state = 0;
                 }
             }
@@ -3114,7 +3138,7 @@ static void uci_mode(FILE * fd) {
                         play_t valid_plays[218];
                         int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
                         if (valid_plays_i == 0) {
-                            fprint_board(stderr, &board);
+                            fprint_board(stderr, &board, &board_ext);
 
                             fprintf(fd, "# Invalid play detected - game is over\n");
                             fflush(fd);
@@ -3148,7 +3172,7 @@ static void uci_mode(FILE * fd) {
         }
         if (extend_uci) {
             if (strcmp(buffer, "log_fen") == 0) {
-                board_to_fen(buffer, &board, fullmoves);
+                board_to_fen(buffer, &board, &board_ext);
                 fprintf(fd, "# %s\n", buffer);
                 fflush(fd);
                 continue;
@@ -3226,7 +3250,6 @@ int main(int argc, char * argv[]) {
     populate_zobrist_masks();
     hash_table = malloc(HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
 
-    extend_uci = 0;
     int from_fen_idx = -1;
     char mode = 'u';
 
@@ -3275,7 +3298,7 @@ int main(int argc, char * argv[]) {
     reset_board();
 
     if (from_fen_idx != -1) {
-        fen_to_board(&board, &fullmoves, argv[from_fen_idx]);
+        fen_to_board(&board, &board_ext, argv[from_fen_idx]);
     }
 
     if (mode == 'u') {

@@ -1,6 +1,6 @@
 #include "common.h"
 
-void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_str) {
+void fen_to_board(board_t * board, board_ext_t * board_ext, const char * fen_str) {
     board->white_pawns = 0;
     board->black_pawns = 0;
     board->white_knights = 0;
@@ -91,14 +91,14 @@ void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_st
 
     fen_str_i++;
 
-    *fullmoves = 0;
+    board_ext->fullmoves = 0;
     while (fen_str[fen_str_i] >= '0' && fen_str[fen_str_i] <= '9') {
-        *fullmoves = *fullmoves * 10 + (fen_str[fen_str_i] - '0');
+        board_ext->fullmoves = board_ext->fullmoves * 10 + (fen_str[fen_str_i] - '0');
         fen_str_i++;
     }
 }
 
-void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves) {
+void board_to_fen(char * fen_str, const board_t * board, const board_ext_t * board_ext) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
     uint64_t empty_mask = ~(white_mask | black_mask);
@@ -200,7 +200,7 @@ void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves)
 
     fen_str[fen_str_i++] = ' ';
 
-    fen_str_i += sprintf(fen_str + fen_str_i, "%d", fullmoves);
+    fen_str_i += sprintf(fen_str + fen_str_i, "%d", board_ext->fullmoves);
 }
 
 // maximum output string length seen: 52

@@ -50,6 +50,15 @@ typedef struct {
 } play_t;
 
 typedef struct {
+    char past_positions[256][56]; // in "short" format, not FEN
+    play_t past_plays[256];
+    unsigned int past_plays_count;
+    unsigned int fullmoves;
+    char last_play_x;
+    char last_play_y;
+} board_ext_t;
+
+typedef struct {
     int64_t hash;
     int score_w_type;
 } hash_table_entry_t;
@@ -79,8 +88,8 @@ typedef struct {
 
 #define MAX_SUPPORTED_OB_RULES 64
 
-void fen_to_board(board_t * board, unsigned int * fullmoves, const char * fen_str);
-void board_to_fen(char * fen_str, const board_t * board, unsigned int fullmoves);
+void fen_to_board(board_t * board, board_ext_t * board_ext, const char * fen_str);
+void board_to_fen(char * fen_str, const board_t * board, const board_ext_t * board_ext);
 void board_to_short_string(char * str, const board_t * board);
 
 #endif
