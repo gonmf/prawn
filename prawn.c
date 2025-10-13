@@ -38,17 +38,23 @@ static int uci_game_in_error_state = 0;
 static void reset_board();
 static void actual_play(const play_t * play);
 static int64_t hash_from_board(const board_t * board);
+static int enumerate_legal_plays(play_t * valid_plays, const board_t * board);
 
 static void init_opening_book() {
     opening_book_size = 0;
 
     play_t play;
+    play_t valid_plays[218];
+    int valid_plays_i;
+    int play_is_legal;
+    int file_row = 0;
 
     play.promotion_option = 0;
     FILE * fp = fopen("openings.txt", "r");
 
     while (opening_book_size < MAX_SUPPORTED_OB_RULES) {
-        char * r = fgets(buffer, 16 * 1024, fp);
+        file_row += 1;
+        char * r = fgets(buffer, 4 * 1024, fp);
         if (r == NULL) {
             break;
         }
@@ -70,21 +76,34 @@ static void init_opening_book() {
             }
 
             char color = board.color;
+            play.from_x = token[0] - 'a';
+            play.from_y = '8' - token[1];
+            play.to_x = token[2] - 'a';
+            play.to_y = '8' - token[3];
+
+            valid_plays_i = enumerate_legal_plays(valid_plays, &board);
+            play_is_legal = 0;
+            for (int i = 0; i < valid_plays_i; ++i) {
+                if (valid_plays[i].from_x == play.from_x && valid_plays[i].from_y == play.from_y && valid_plays[i].to_x == play.to_x && valid_plays[i].to_y == play.to_y && valid_plays[i].promotion_option == 0) {
+                    play_is_legal = 1;
+                    break;
+                }
+            }
+
+            if (!play_is_legal) {
+                fprintf(stderr, "Error reading openings book - invalid play @ line %d\n", file_row);
+                exit(EXIT_FAILURE);
+            }
 
             if (plays_found == -1) {
-                play.from_x = token[0] - 'a';
-                play.from_y = '8' - token[1];
-                play.to_x = token[2] - 'a';
-                play.to_y = '8' - token[3];
-
                 actual_play(&play);
                 continue;
             }
 
-            ob_plays[opening_book_size][plays_found].from_x = token[0] - 'a';
-            ob_plays[opening_book_size][plays_found].from_y = '8' - token[1];
-            ob_plays[opening_book_size][plays_found].to_x = token[2] - 'a';
-            ob_plays[opening_book_size][plays_found].to_y = '8' - token[3];
+            ob_plays[opening_book_size][plays_found].from_x = play.from_x;
+            ob_plays[opening_book_size][plays_found].from_y = play.from_y;
+            ob_plays[opening_book_size][plays_found].to_x = play.to_x;
+            ob_plays[opening_book_size][plays_found].to_y = play.to_y;
             ob_play_colors[opening_book_size] = color;
             plays_found++;
         }
@@ -2293,31 +2312,6 @@ static int king_threatened(const board_t * board) {
 static int estimate_board_score(const board_t * board) {
     int score = 0;
 
-    const int pawn_pst[64] = {
-         0,  0,  0,  0,  0,  0,  0,  0,
-        50, 50, 50, 50, 50, 50, 50, 50,
-        10, 10, 20, 30, 30, 20, 10, 10,
-         5,  5, 10, 25, 25, 10,  5,  5,
-         0,  0,  0, 20, 20,  0,  0,  0,
-         5, -5,-10,  0,  0,-10, -5,  5,
-         5, 10, 10,-20,-20, 10, 10,  5,
-         0,  0,  0,  0,  0,  0,  0,  0
-    };
-
-    uint64_t pawns = board->white_pawns;
-    while (pawns) {
-        int sq = __builtin_ctzll(pawns);
-        score += 100 + pawn_pst[sq];
-        pawns &= pawns - 1;
-    }
-
-    pawns = board->black_pawns;
-    while (pawns) {
-        int sq = __builtin_ctzll(pawns);
-        score -= 100 + pawn_pst[63 - sq];
-        pawns &= pawns - 1;
-    }
-
     const int knight_pst[64] = {
       -50,-40,-30,-30,-30,-30,-40,-50,
       -40,-20,  0,  0,  0,  0,-20,-40,
@@ -2416,6 +2410,69 @@ static int estimate_board_score(const board_t * board) {
         int sq = __builtin_ctzll(queens);
         score -= 900 + queen_pst[63 - sq];
         queens &= queens - 1;
+    }
+
+/*
+    const int king_midgame_pst[64] = {
+        -30, -40, -40, -50, -50, -40, -40, -30,
+        -30, -40, -40, -50, -50, -40, -40, -30,
+        -30, -40, -40, -50, -50, -40, -40, -30,
+        -30, -40, -40, -50, -50, -40, -40, -30,
+        -20, -30, -30, -40, -40, -30, -30, -20,
+        -10, -20, -20, -20, -20, -20, -20, -10,
+         20,  20,   0,   0,   0,   0,  20,  20,
+         20,  30,  10,   0,   0,  10,  30,  20,
+    };
+
+    const int king_endgame_pst[64] = {
+        -50, -40, -30, -20, -20, -30, -40, -50,
+        -30, -20, -10,   0,   0, -10, -20, -30,
+        -30, -10,  20,  30,  30,  20, -10, -30,
+        -30, -10,  30,  40,  40,  30, -10, -30,
+        -30, -10,  30,  40,  40,  30, -10, -30,
+        -30, -10,  20,  30,  30,  20, -10, -30,
+        -30, -30,   0,   0,   0,   0, -30, -30,
+        -50, -30, -30, -30, -30, -30, -30, -50,
+    };
+
+    const int * king_pst = score > 1450 ? king_midgame_pst : king_endgame_pst;
+
+    uint64_t kings = board->white_kings;
+    if (kings) {
+        int sq = __builtin_ctzll(kings);
+        score += king_pst[sq];
+    }
+
+    kings = board->black_kings;
+    if (kings) {
+        int sq = __builtin_ctzll(kings);
+        score -= king_pst[63 - sq];
+    }
+*/
+
+    const int pawn_pst[64] = {
+         0,  0,  0,  0,  0,  0,  0,  0,
+        50, 50, 50, 50, 50, 50, 50, 50,
+        10, 10, 20, 30, 30, 20, 10, 10,
+         5,  5, 10, 25, 25, 10,  5,  5,
+         0,  0,  0, 20, 20,  0,  0,  0,
+         5, -5,-10,  0,  0,-10, -5,  5,
+         5, 10, 10,-20,-20, 10, 10,  5,
+         0,  0,  0,  0,  0,  0,  0,  0
+    };
+
+    uint64_t pawns = board->white_pawns;
+    while (pawns) {
+        int sq = __builtin_ctzll(pawns);
+        score += 100 + pawn_pst[sq];
+        pawns &= pawns - 1;
+    }
+
+    pawns = board->black_pawns;
+    while (pawns) {
+        int sq = __builtin_ctzll(pawns);
+        score -= 100 + pawn_pst[63 - sq];
+        pawns &= pawns - 1;
     }
 
     return score;

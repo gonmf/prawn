@@ -13,4 +13,4 @@ debug: *.c
 	$(CC) -g -O0 $(CFLAGS) *.c -o prawn-debug
 
 clean:
-	rm -f prawn prawn-debug two-uci *.log
+	rm -rf prawn prawn-debug two-uci *.log prawn-debug.dSYM
