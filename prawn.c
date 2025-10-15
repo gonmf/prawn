@@ -34,9 +34,10 @@ static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 static int opening_book_enabled = 1;
 static int extend_uci = 0;
 static int uci_game_in_error_state = 0;
+static int convert_at_ob_depth = -1;
 
 static void reset_board();
-static void actual_play(const play_t * play);
+static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play);
 static int64_t hash_from_board(const board_t * board);
 static int enumerate_legal_plays(play_t * valid_plays, const board_t * board);
 
@@ -44,6 +45,7 @@ static void init_opening_book() {
     opening_book_size = 0;
 
     play_t play;
+    play.promotion_option = 0;
     play_t valid_plays[218];
     int valid_plays_i;
     int play_is_legal;
@@ -68,6 +70,7 @@ static void init_opening_book() {
         reset_board();
 
         int plays_found = -1;
+        int ob_depth = 1;
         char * token;
         while ((token = strsep(&s, " ")) != NULL && plays_found < 4) {
             if (token[0] == '|') {
@@ -96,7 +99,8 @@ static void init_opening_book() {
             }
 
             if (plays_found == -1) {
-                actual_play(&play);
+                actual_play(&board, &board_ext, &play);
+                ob_depth++;
                 continue;
             }
 
@@ -113,11 +117,36 @@ static void init_opening_book() {
             exit(EXIT_FAILURE);
         }
 
+        if (ob_depth == convert_at_ob_depth) {
+            char fen_buf[100];
+            board_t board_cpy;
+            board_ext_t board_ext_cpy;
+            for (int i = 0; i < 4; ++i) {
+                memcpy(&board_cpy, &board, sizeof(board_t));
+                memcpy(&board_ext_cpy, &board_ext, sizeof(board_ext_t));
+                play.from_x = ob_plays[opening_book_size][i].from_x;
+                play.from_y = ob_plays[opening_book_size][i].from_y;
+                play.to_x = ob_plays[opening_book_size][i].to_x;
+                play.to_y = ob_plays[opening_book_size][i].to_y;
+                actual_play(&board_cpy, &board_ext_cpy, &play);
+                board_to_fen(fen_buf, &board_cpy, &board_ext_cpy);
+                printf("%s\n", fen_buf);
+            }
+        }
+
         opening_book[opening_book_size] = hash_from_board(&board);
         opening_book_size++;
     }
 
+    if (opening_book_size == MAX_SUPPORTED_OB_RULES) {
+        fprintf(stderr, "Maximum number of opening books reached\n");
+    }
+
     fclose(fp);
+
+    if (convert_at_ob_depth != -1) {
+        exit(EXIT_SUCCESS);
+    }
 }
 
 static int get_opening_book_play(play_t * play, uint64_t board_hash) {
@@ -1117,35 +1146,35 @@ static void just_play_black_complex(board_t * board, const play_t * play, int de
     *out_hash = hash;
 }
 
-static void actual_play(const play_t * play) {
-    if (board_ext.past_plays_count < 256) {
-        board_ext.past_plays[board_ext.past_plays_count].from_x = play->from_x;
-        board_ext.past_plays[board_ext.past_plays_count].from_y = play->from_y;
-        board_ext.past_plays[board_ext.past_plays_count].to_x = play->to_x;
-        board_ext.past_plays[board_ext.past_plays_count].to_y = play->to_y;
-        board_ext.past_plays[board_ext.past_plays_count].promotion_option = play->promotion_option;
-        board_to_short_string(board_ext.past_positions[board_ext.past_plays_count], &board);
-        board_ext.past_plays_count++;
+static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play) {
+    if (board_ext->past_plays_count < 256) {
+        board_ext->past_plays[board_ext->past_plays_count].from_x = play->from_x;
+        board_ext->past_plays[board_ext->past_plays_count].from_y = play->from_y;
+        board_ext->past_plays[board_ext->past_plays_count].to_x = play->to_x;
+        board_ext->past_plays[board_ext->past_plays_count].to_y = play->to_y;
+        board_ext->past_plays[board_ext->past_plays_count].promotion_option = play->promotion_option;
+        board_to_short_string(board_ext->past_positions[board_ext->past_plays_count], board);
+        board_ext->past_plays_count++;
     }
 
-    char moving_piece = identify_piece(&board, play->from_y * 8 + play->from_x);
-    if (moving_piece == 'P' || moving_piece == 'p' || identify_piece(&board, play->to_y * 8 + play->to_x) != ' ') {
-        board.halfmoves = 0;
+    char moving_piece = identify_piece(board, play->from_y * 8 + play->from_x);
+    if (moving_piece == 'P' || moving_piece == 'p' || identify_piece(board, play->to_y * 8 + play->to_x) != ' ') {
+        board->halfmoves = 0;
     } else {
-        board.halfmoves++;
+        board->halfmoves++;
     }
 
-    board_ext.last_play_x = play->to_x;
-    board_ext.last_play_y = play->to_y;
-    if (board.color == BLACK_COLOR) {
-        board_ext.fullmoves++;
+    board_ext->last_play_x = play->to_x;
+    board_ext->last_play_y = play->to_y;
+    if (board->color == BLACK_COLOR) {
+        board_ext->fullmoves++;
     }
 
     int64_t hash = 0;
-    if (board.color == WHITE_COLOR) {
-        just_play_white_complex(&board, play, 0, &hash);
+    if (board->color == WHITE_COLOR) {
+        just_play_white_complex(board, play, 0, &hash);
     } else {
-        just_play_black_complex(&board, play, 0, &hash);
+        just_play_black_complex(board, play, 0, &hash);
     }
 }
 
@@ -2781,7 +2810,7 @@ static int ai_play(play_t * play) {
         uint64_t board_hash = hash_from_board(&board);
         int play_found = get_opening_book_play(play, board_hash);
         if (play_found) {
-            actual_play(play);
+            actual_play(&board, &board_ext, play);
             return 1;
         }
     }
@@ -2876,7 +2905,7 @@ static int ai_play(play_t * play) {
         }
     }
 
-    actual_play(&valid_plays[best_play]);
+    actual_play(&board, &board_ext, &valid_plays[best_play]);
     *play = valid_plays[best_play];
     return 1;
 }
@@ -2957,7 +2986,7 @@ static void undo_last_plays() {
     unsigned past_plays = board_ext.past_plays_count - 2;
     reset_board();
     for (unsigned int i = 0; i < past_plays; ++i) {
-        actual_play(&board_ext.past_plays[i]);
+        actual_play(&board, &board_ext, &board_ext.past_plays[i]);
     }
     board_ext.past_plays_count = past_plays;
 }
@@ -3095,7 +3124,7 @@ static void text_mode_play(int player_one_is_human, int player_two_is_human) {
             play_t play;
             int played = input_play(&play, valid_plays, valid_plays_i);
             if (played) {
-                actual_play(&play);
+                actual_play(&board, &board_ext, &play);
             }
         } else {
             play_t play;
@@ -3238,7 +3267,7 @@ static void uci_mode(FILE * fd) {
                             }
                         }
                         if (play_is_valid) {
-                            actual_play(&play);
+                            actual_play(&board, &board_ext, &play);
                         } else {
                             fprintf(fd, "# Invalid play detected\n");
                             fflush(fd);
@@ -3308,13 +3337,14 @@ static void uci_mode(FILE * fd) {
 
 static void show_help() {
     printf("Prawn %s\n\nOptions:\n", PROGRAM_VERSION);
-    printf("  --position   - Start from FEN position\n");
-    printf("  --no-book    - Do not use the opening book\n");
-    printf("  --uci        - Start on UCI interface mode (default)\n");
-    printf("  --text       - Play via the text interface\n");
-    printf("  --self       - Have the program play against itself\n");
-    printf("  --extend-uci - In UCI mode reply loss/draw to position commands\n");
-    printf("  --help, -h   - Show this message\n\n");
+    printf("  --position        - Start from FEN position\n");
+    printf("  --no-book         - Do not use the opening book\n");
+    printf("  --convert-ob-at=N - Convert opening book to FEN list for positions at depth N\n");
+    printf("  --uci             - Start on UCI interface mode (default)\n");
+    printf("  --text            - Play via the text interface\n");
+    printf("  --self            - Have the program play against itself\n");
+    printf("  --extend-uci      - In UCI mode reply loss/draw to position commands\n");
+    printf("  --help, -h        - Show this message\n\n");
 }
 
 static void init_randomness() {
@@ -3349,6 +3379,10 @@ int main(int argc, char * argv[]) {
             opening_book_enabled = 0;
             continue;
         }
+        if (strncmp(argv[i], "--convert-ob-at=", strlen("--convert-ob-at=")) == 0) {
+            convert_at_ob_depth = atoi(argv[i] + strlen("--convert-ob-at="));
+            continue;
+        }
         if (strcmp(argv[i], "--uci") == 0) {
             mode = 'u';
             continue;
@@ -3375,6 +3409,9 @@ int main(int argc, char * argv[]) {
 
     if (opening_book_enabled) {
         init_opening_book();
+    } else if (convert_at_ob_depth != -1) {
+        fprintf(stderr, "Error: --convert-ob-at argument disallows --no-book\n");
+        return EXIT_FAILURE;
     }
 
     reset_board();

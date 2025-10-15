@@ -32,10 +32,46 @@ static long elapsed_ms(struct timeval start, struct timeval end) {
 }
 
 int main(int argc, char * argv[]) {
-    if (argc != 3) {
+    if (argc != 3 && argc != 4) {
         printf("Illegal input. Example:\n");
-        printf("%s \"prawn\" \"prawn\"\n", argv[0]);
+        printf("%s \"prawn\" \"prawn\" [--collection=bait.input]\n", argv[0]);
         return EXIT_FAILURE;
+    }
+
+    int random_play = 0;
+    char * start_positions[400];
+    int start_positions_count = 0;
+    if (argc == 3) {
+        start_positions[0] = malloc(100);
+        sprintf(start_positions[0], "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        start_positions_count = 1;
+        random_play = 1;
+    } else {
+        FILE * fp = fopen("bait.input", "r");
+
+        while (1) {
+            start_positions[start_positions_count] = malloc(100);
+
+            char * r = fgets(start_positions[start_positions_count], 100, fp);
+            if (r == NULL || strlen(r) < 1) {
+                free(start_positions[start_positions_count]);
+                break;
+            }
+            r[strlen(r) - 1] = 0;
+
+            start_positions_count++;
+        }
+
+        fclose(fp);
+
+        if (start_positions_count == 0) {
+            fprintf(stderr, "No starting position loaded\n");
+            return EXIT_FAILURE;
+        }
+    }
+
+    if (!random_play) {
+        printf("Loaded %d starting positions\n", start_positions_count);
     }
 
     printf("PROGRAM 1 = %s\n", argv[1]);
@@ -60,7 +96,7 @@ int main(int argc, char * argv[]) {
         close(prog1_inPipe[0]);
         close(prog1_outPipe[1]);
 
-        execlp(argv[1], argv[1], "--extend-uci", NULL);
+        execlp(argv[1], argv[1], "--extend-uci", random_play ? NULL : "--no-book", NULL);
         perror("execlp");
         exit(EXIT_FAILURE);
     }
@@ -81,7 +117,7 @@ int main(int argc, char * argv[]) {
         close(prog2_inPipe[0]);
         close(prog2_outPipe[1]);
 
-        execlp(argv[2], argv[2], "--extend-uci", NULL);
+        execlp(argv[2], argv[2], "--extend-uci", random_play ? NULL : "--no-book", NULL);
         perror("execlp");
         exit(EXIT_FAILURE);
     }
@@ -102,13 +138,23 @@ int main(int argc, char * argv[]) {
 
     printf("\rRounds #\t|\tP1 WR\t|\tWH WR\t|\tDRAWS\t|\tERROR\t|\tavg time (s)\n");
 
-    while (1) {
+    int start_position = start_positions_count - 1;
+    int max_rounds = random_play ? -1 : start_positions_count * 2;
+
+    while (max_rounds == -1 || round < max_rounds) {
         round += 1;
+        if (round & 1) {
+            start_position++;
+        }
+        int start_pos = start_position % start_positions_count;
 
         gettimeofday(&start, NULL);
 
         write_line(prog1_inPipe[1], "ucinewgame\n");
         write_line(prog2_inPipe[1], "ucinewgame\n");
+        sprintf(buffer, "position fen %s\n", start_positions[start_pos]);
+        write_line(prog1_inPipe[1], buffer);
+        write_line(prog2_inPipe[1], buffer);
 
         int turn = 0;
         char * move;

@@ -3,5 +3,7 @@ prawn-base
 prawn-debug
 prawn-debug.dSYM/
 *.log
-two-uci
+bait
+bait.input
 cutechess-cli
+.DS_Store
