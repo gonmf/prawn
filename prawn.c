@@ -325,7 +325,7 @@ static void hash_table_insert(int64_t hash, int score_w_type) {
 
 static void populate_zobrist_masks() {
     int nItems = 64 * 12 + MAX_TOTAL_SEARCH_DEPTH + 1 + 8 + 4;
-    sprintf(buffer, "zobrist_%d.bin", (nItems & 1) ? nItems + 1 : nItems);
+    sprintf(buffer, "zobrist_%d.bin", nItems);
     FILE * s = fopen(buffer, "rb");
     if (s == NULL) {
         fprintf(stderr, "Zobrist file with %d entries (depth %d) not found.\n", nItems, MAX_SEARCH_DEPTH);

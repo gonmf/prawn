@@ -37,3 +37,24 @@ To do this run
 
 Regression testing from a given collection automatically disables the openings
 book.
+
+## Zobrist tables
+
+**prawn** does not generate its Zobrist keys at startup; it reads them from a
+`zobrist_N.bin` file in the working directory, where `N` is the number of keys
+the current `MAX_SEARCH_DEPTH` needs. A separate tool called **zobrist-gen**
+produces these files:
+
+```sh
+make zobrist-gen
+
+./zobrist-gen --depth=5
+```
+
+Keys are drawn from `/dev/urandom`, constrained to have exactly 32 set bits
+each and to be at least 16 bits apart from every other key. Whole tables are
+drawn repeatedly and the one with the most even distribution of set bits across
+the 64 bit positions is kept, either until ENTER is pressed or until the time
+budget given by `--seconds` runs out.
+
+Use `--entries=N` instead of `--depth=N` to ask for a table of a specific size.
