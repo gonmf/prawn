@@ -64,7 +64,13 @@ typedef struct {
 } hash_table_entry_t;
 
 #define MAX_SEARCH_DEPTH 5
+// Extra plies the capture-only (quiescence) search is allowed to spend past MAX_SEARCH_DEPTH
+#define QUIESCENCE_EXTRA_DEPTH 2
+#define MAX_TOTAL_SEARCH_DEPTH (MAX_SEARCH_DEPTH + QUIESCENCE_EXTRA_DEPTH)
 #define HASH_TABLE_SIZE 8388608
+
+// Stalemates, 50 move rule, repetitions and dead positions are all worth exactly this much
+#define DRAW_SCORE 0
 
 #define TYPE_EXACT 1
 #define TYPE_UPPER_BOUND 2
