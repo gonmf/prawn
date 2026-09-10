@@ -2550,9 +2550,16 @@ static int estimate_board_score(const board_t * board) {
     return score;
 }
 
-static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int initial_score, int64_t hash);
+static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash);
 
-static int minimax_white_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int initial_score, int64_t hash) {
+// Quiescence search. Reached from the frontier of the main search, it keeps resolving captures until
+// the position is quiet, so that estimate_board_score is never taken in the middle of a trade.
+//
+// The side to move may always stand pat, i.e. stop capturing and accept the static score, since it
+// is under no obligation to enter a capture sequence; that score is the floor (for white) or the
+// ceiling (for black) of the node. The one exception is being in check, where doing nothing is not
+// legal: there every reply is searched, quiet ones included, and only the depth limit ends it.
+static int minimax_white_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -2580,46 +2587,49 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     }
 
     if (depth == max_depth) {
-        initial_score += estimate_board_score(board);
+        int score = estimate_board_score(board);
+
         if (!found) {
-            int score_w_type = pack_score(initial_score, TYPE_EXACT);
-            hash_table_insert(hash, score_w_type);
+            hash_table_insert(hash, pack_score(score, TYPE_EXACT));
         }
-        return initial_score;
+        return score;
     }
 
     board_t board_cpy;
     // For why 218, see https://lichess.org/@/Tobs40/blog/why-a-position-cant-have-more-than-218-moves/a5xdxeqs
     play_t valid_plays[218];
-    char captures[218];
 
     int valid_plays_i = enumerate_legal_plays_white(valid_plays, board);
+    int in_check = king_threatened_white(board);
+
     if (valid_plays_i == 0) {
-        if (king_threatened_white(board)) {
-            int score = -20000000 + depth * 128;
+        int score = in_check ? -20000000 + depth * 128 : DRAW_SCORE;
 
-            if (!found) {
-                int score_w_type = pack_score(score, TYPE_EXACT);
-                hash_table_insert(hash, score_w_type);
-            }
-            return score;
-        } else {
-            int score = DRAW_SCORE;
-
-            if (!found) {
-                int score_w_type = pack_score(score, TYPE_EXACT);
-                hash_table_insert(hash, score_w_type);
-            }
-            return score;
+        if (!found) {
+            hash_table_insert(hash, pack_score(score, TYPE_EXACT));
         }
+        return score;
     }
 
-    int best_score = NO_SCORE;
-    int breakfor = 0;
+    int best_score;
+
+    if (in_check) {
+        best_score = NO_SCORE;
+    } else {
+        best_score = estimate_board_score(board);
+
+        if (best_score >= beta) {
+            if (!found) {
+                hash_table_insert(hash, pack_score(best_score, TYPE_LOWER_BOUND));
+            }
+            return best_score;
+        }
+
+        alpha = MAX(alpha, best_score);
+    }
 
     for (int i = 0; i < valid_plays_i; ++i) {
-        captures[i] = identify_piece_black(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) != ' ';
-        if (!captures[i]) {
+        if (!in_check && identify_piece_black(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) == ' ') {
             continue;
         }
 
@@ -2628,27 +2638,17 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
 
         just_play_white_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-        int score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth, alpha, beta, depth + 1 == max_depth ? valid_plays_i : 0, this_hash);
+        int score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score > best_score) {
                 best_score = score;
             }
-            if (score >= beta) {
-                breakfor = 1;
+            if (best_score >= beta) {
                 break;
             }
-            alpha = MAX(alpha, score);
+            alpha = MAX(alpha, best_score);
         }
-    }
-
-    if (!breakfor) {
-        initial_score += estimate_board_score(board);
-        if (!found) {
-            int score_w_type = pack_score(initial_score, TYPE_EXACT);
-            hash_table_insert(hash, score_w_type);
-        }
-        return initial_score;
     }
 
     if (!found) {
@@ -2661,14 +2661,13 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
             type = TYPE_EXACT;
         }
 
-        int score_w_type = pack_score(best_score, type);
-        hash_table_insert(hash, score_w_type);
+        hash_table_insert(hash, pack_score(best_score, type));
     }
 
     return best_score;
 }
 
-static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int initial_score, int64_t hash) {
+static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -2696,45 +2695,48 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
     }
 
     if (depth == max_depth) {
-        initial_score += estimate_board_score(board);
+        int score = estimate_board_score(board);
+
         if (!found) {
-            int score_w_type = pack_score(initial_score, TYPE_EXACT);
-            hash_table_insert(hash, score_w_type);
+            hash_table_insert(hash, pack_score(score, TYPE_EXACT));
         }
-        return initial_score;
+        return score;
     }
 
     board_t board_cpy;
     play_t valid_plays[218];
-    char captures[218];
 
     int valid_plays_i = enumerate_legal_plays_black(valid_plays, board);
+    int in_check = king_threatened_black(board);
+
     if (valid_plays_i == 0) {
-        if (king_threatened_black(board)) {
-            int score = 20000000 - depth * 128;
+        int score = in_check ? 20000000 - depth * 128 : DRAW_SCORE;
 
-            if (!found) {
-                int score_w_type = pack_score(score, TYPE_EXACT);
-                hash_table_insert(hash, score_w_type);
-            }
-            return score;
-        } else {
-            int score = DRAW_SCORE;
-
-            if (!found) {
-                int score_w_type = pack_score(score, TYPE_EXACT);
-                hash_table_insert(hash, score_w_type);
-            }
-            return score;
+        if (!found) {
+            hash_table_insert(hash, pack_score(score, TYPE_EXACT));
         }
+        return score;
     }
 
-    int best_score = NO_SCORE;
-    int breakfor = 0;
+    int best_score;
+
+    if (in_check) {
+        best_score = NO_SCORE;
+    } else {
+        best_score = estimate_board_score(board);
+
+        if (best_score <= alpha) {
+            if (!found) {
+                hash_table_insert(hash, pack_score(best_score, TYPE_UPPER_BOUND));
+            }
+            return best_score;
+        }
+
+        beta = MIN(beta, best_score);
+    }
 
     for (int i = 0; i < valid_plays_i; ++i) {
-        captures[i] = identify_piece_white(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) != ' ';
-        if (!captures[i]) {
+        if (!in_check && identify_piece_white(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) == ' ') {
             continue;
         }
 
@@ -2743,27 +2745,17 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
 
         just_play_black_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-        int score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth, alpha, beta, depth + 1 == max_depth ? -valid_plays_i : 0, this_hash);
+        int score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score < best_score) {
                 best_score = score;
             }
-            if (score <= alpha) {
-                breakfor = 1;
+            if (best_score <= alpha) {
                 break;
             }
-            beta = MIN(beta, score);
+            beta = MIN(beta, best_score);
         }
-    }
-
-    if (!breakfor) {
-        initial_score += estimate_board_score(board);
-        if (!found) {
-            int score_w_type = pack_score(initial_score, TYPE_EXACT);
-            hash_table_insert(hash, score_w_type);
-        }
-        return initial_score;
     }
 
     if (!found) {
@@ -2776,16 +2768,15 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
             type = TYPE_EXACT;
         }
 
-        int score_w_type = pack_score(best_score, type);
-        hash_table_insert(hash, score_w_type);
+        hash_table_insert(hash, pack_score(best_score, type));
     }
 
     return best_score;
 }
 
-static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int initial_score, int64_t hash);
+static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash);
 
-static int minimax_white(const board_t * board, int depth, int max_depth, int alpha, int beta, int initial_score, int64_t hash) {
+static int minimax_white(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -2813,12 +2804,12 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     }
 
     if (depth == max_depth) {
-        initial_score += estimate_board_score(board);
+        int score = estimate_board_score(board);
+
         if (!found) {
-            int score_w_type = pack_score(initial_score, TYPE_EXACT);
-            hash_table_insert(hash, score_w_type);
+            hash_table_insert(hash, pack_score(score, TYPE_EXACT));
         }
-        return initial_score;
+        return score;
     }
 
     board_t board_cpy;
@@ -2863,9 +2854,9 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
 
         int score;
         if (depth + 1 == max_depth) {
-            score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, 0, this_hash);
+            score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
         } else {
-            score = minimax_black(&board_cpy, depth + 1, max_depth, alpha, beta, 0, this_hash);
+            score = minimax_black(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
         }
 
         if (score != NO_SCORE) {
@@ -2891,7 +2882,15 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
 
             just_play_white_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-            int score = minimax_black(&board_cpy, depth + 1, max_depth, alpha, beta, depth + 1 == max_depth ? valid_plays_i : 0, this_hash);
+            // A quiet move at the frontier hands off to the quiescence search exactly like a
+            // capture does: it can just as easily leave a piece hanging, and taking the static
+            // score there instead is what let the search walk into losing one.
+            int score;
+            if (depth + 1 == max_depth) {
+                score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
+            } else {
+                score = minimax_black(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
+            }
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score > best_score) {
@@ -2922,7 +2921,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     return best_score;
 }
 
-static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int initial_score, int64_t hash) {
+static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -2950,12 +2949,12 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
     }
 
     if (depth == max_depth) {
-        initial_score += estimate_board_score(board);
+        int score = estimate_board_score(board);
+
         if (!found) {
-            int score_w_type = pack_score(initial_score, TYPE_EXACT);
-            hash_table_insert(hash, score_w_type);
+            hash_table_insert(hash, pack_score(score, TYPE_EXACT));
         }
-        return initial_score;
+        return score;
     }
 
     board_t board_cpy;
@@ -2999,9 +2998,9 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
 
         int score;
         if (depth + 1 == max_depth) {
-            score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, 0, this_hash);
+            score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
         } else {
-            score = minimax_white(&board_cpy, depth + 1, max_depth, alpha, beta, 0, this_hash);
+            score = minimax_white(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
         }
 
         if (score != NO_SCORE) {
@@ -3027,7 +3026,15 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
 
             just_play_black_complex(&board_cpy, &valid_plays[i], depth, &this_hash);
 
-            int score = minimax_white(&board_cpy, depth + 1, max_depth, alpha, beta, depth + 1 == max_depth ? -valid_plays_i : 0, this_hash);
+            // A quiet move at the frontier hands off to the quiescence search exactly like a
+            // capture does: it can just as easily leave a piece hanging, and taking the static
+            // score there instead is what let the search walk into losing one.
+            int score;
+            if (depth + 1 == max_depth) {
+                score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
+            } else {
+                score = minimax_white(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
+            }
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score < best_score) {
@@ -3161,9 +3168,9 @@ static int ai_play(play_t * play) {
             score = DRAW_SCORE;
         } else {
             if (board_cpy.color == WHITE_COLOR) {
-                score = minimax_white(&board_cpy, 0, MAX_SEARCH_DEPTH, alpha, beta, 0, child_hash);
+                score = minimax_white(&board_cpy, 0, MAX_SEARCH_DEPTH, alpha, beta, child_hash);
             } else {
-                score = minimax_black(&board_cpy, 0, MAX_SEARCH_DEPTH, alpha, beta, 0, child_hash);
+                score = minimax_black(&board_cpy, 0, MAX_SEARCH_DEPTH, alpha, beta, child_hash);
             }
         }
 
