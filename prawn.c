@@ -2255,6 +2255,17 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
     int valid_plays_local_i = enumerate_all_possible_plays_white(valid_plays_local, board);
     board_t board_cpy;
 
+    // Castling is only generated with the king on e1, so a play from e1 is a
+    // king play exactly when the king is still there
+    int king_on_start = (board->white_kings & (1ULL << (7 * 8 + 4))) != 0ULL;
+
+    // Castling out of check is illegal; the transit and destination squares are
+    // tested per play below, but e1 itself is only tested before the play
+    int castling_out_of_check = 0;
+    if (king_on_start && (board->white_left_castling || board->white_right_castling)) {
+        castling_out_of_check = (mask_attacked_positions_by_black(board) & board->white_kings) != 0ULL;
+    }
+
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
@@ -2268,15 +2279,15 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
         int from_x = valid_plays_local[i].from_x;
         int from_y = valid_plays_local[i].from_y;
 
-        if (from_x == 4 && from_y == 7) {
+        if (king_on_start && from_x == 4 && from_y == 7) {
             int to_x = valid_plays_local[i].to_x;
 
             if (to_x == 6) {
-                if (attacked & (1ULL << (7 * 8 + 5))) {
+                if (castling_out_of_check || (attacked & (1ULL << (7 * 8 + 5)))) {
                     continue;
                 }
             } else if (to_x == 2) {
-                if (attacked & (1ULL << (7 * 8 + 3))) {
+                if (castling_out_of_check || (attacked & (1ULL << (7 * 8 + 3)))) {
                     continue;
                 }
             }
@@ -2295,6 +2306,17 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
     int valid_plays_local_i = enumerate_all_possible_plays_black(valid_plays_local, board);
     board_t board_cpy;
 
+    // Castling is only generated with the king on e8, so a play from e8 is a
+    // king play exactly when the king is still there
+    int king_on_start = (board->black_kings & (1ULL << (0 * 8 + 4))) != 0ULL;
+
+    // Castling out of check is illegal; the transit and destination squares are
+    // tested per play below, but e8 itself is only tested before the play
+    int castling_out_of_check = 0;
+    if (king_on_start && (board->black_left_castling || board->black_right_castling)) {
+        castling_out_of_check = (mask_attacked_positions_by_white(board) & board->black_kings) != 0ULL;
+    }
+
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
         memcpy(&board_cpy, board, sizeof(board_t));
@@ -2308,15 +2330,15 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
         int from_x = valid_plays_local[i].from_x;
         int from_y = valid_plays_local[i].from_y;
 
-        if (from_x == 4 && from_y == 0) {
+        if (king_on_start && from_x == 4 && from_y == 0) {
             int to_x = valid_plays_local[i].to_x;
 
             if (to_x == 6) {
-                if (attacked & (1ULL << (0 * 8 + 5))) {
+                if (castling_out_of_check || (attacked & (1ULL << (0 * 8 + 5)))) {
                     continue;
                 }
             } else if (to_x == 2) {
-                if (attacked & (1ULL << (0 * 8 + 3))) {
+                if (castling_out_of_check || (attacked & (1ULL << (0 * 8 + 3)))) {
                     continue;
                 }
             }
