@@ -1,5 +1,6 @@
 prawn
 prawn-base
+prawn-baseline
 prawn-debug
 prawn-debug.dSYM/
 *.log

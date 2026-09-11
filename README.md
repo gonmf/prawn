@@ -42,13 +42,14 @@ book.
 
 **prawn** does not generate its Zobrist keys at startup; it reads them from a
 `zobrist_N.bin` file in the working directory, where `N` is the number of keys
-the current `MAX_SEARCH_DEPTH` needs. A separate tool called **zobrist-gen**
-produces these files:
+it needs: one per piece per square, one for the side to move, one per en passant
+file and one per castling right, currently 781 in all. A separate tool called
+**zobrist-gen** produces these files:
 
 ```sh
 make zobrist-gen
 
-./zobrist-gen --depth=5
+./zobrist-gen
 ```
 
 Keys are drawn from `/dev/urandom`, constrained to have exactly 32 set bits
@@ -57,4 +58,4 @@ drawn repeatedly and the one with the most even distribution of set bits across
 the 64 bit positions is kept, either until ENTER is pressed or until the time
 budget given by `--seconds` runs out.
 
-Use `--entries=N` instead of `--depth=N` to ask for a table of a specific size.
+Use `--entries=N` to ask for a table of a size other than the default.

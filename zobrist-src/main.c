@@ -3,10 +3,9 @@ Generate a Zobrist key table file for prawn.
 
 The file is a flat array of int64_t keys in native byte order, named
 zobrist_N.bin and read whole by populate_zobrist_masks in prawn.c. That function
-splits it into 64*12 piece-square keys, MAX_TOTAL_SEARCH_DEPTH+1 depth keys, 8
-en passant file keys and 4 castling keys, in that order -- so the only thing
-that varies with the search depth is how many keys the file has to hold, and
-this tool only has to produce that many good keys.
+splits it into 64*12 piece-square keys, one side to move key, 8 en passant file
+keys and 4 castling keys, in that order. The count does not depend on the search
+depth, so there is only ever one file to produce.
 
 Keys are drawn from /dev/urandom and constrained to have exactly 32 set bits
 each and to be at least MIN_HAMMING_DISTANCE apart, which also makes them
@@ -28,7 +27,6 @@ ENTER or until the time budget runs out.
 // far outliers -- among them duplicates, which are 0 bits apart.
 #define MIN_HAMMING_DISTANCE 16
 
-#define DEFAULT_SEARCH_DEPTH MAX_SEARCH_DEPTH
 #define DEFAULT_SECONDS 10
 
 static FILE * urandom_file = NULL;
@@ -152,19 +150,18 @@ static long elapsed_ms(struct timeval start, struct timeval end) {
 }
 
 /*
-Number of keys prawn reads for a given maximum search depth, and the number it
-names the file after. Kept in step with populate_zobrist_masks in prawn.c.
+Number of keys prawn reads, and the number it names the file after. Kept in step
+with populate_zobrist_masks in prawn.c.
 */
-static int entries_for_depth(int search_depth) {
-    return 64 * 12 + (search_depth + QUIESCENCE_EXTRA_DEPTH) + 1 + 8 + 4;
+static int default_entries() {
+    return 64 * 12 + 1 + 8 + 4;
 }
 
 static void print_usage(const char * program_name) {
     printf("Generate a Zobrist key table for prawn.\n\n");
     printf("Usage: %s [options]\n\n", program_name);
     printf("Options:\n");
-    printf("  --depth=N    - Table for a maximum search depth of N (default %d)\n", DEFAULT_SEARCH_DEPTH);
-    printf("  --entries=N  - Table of exactly N keys, instead of a depth\n");
+    printf("  --entries=N  - Table of exactly N keys (default %d, what prawn reads)\n", default_entries());
     printf("  --seconds=N  - Search for a balanced table for N seconds (default %d)\n", DEFAULT_SECONDS);
     printf("  --force      - Overwrite the output file if it already exists\n");
     printf("  --help, -h   - Show this message\n\n");
@@ -172,7 +169,6 @@ static void print_usage(const char * program_name) {
 }
 
 int main(int argc, char * argv[]) {
-    int search_depth = DEFAULT_SEARCH_DEPTH;
     int entries = 0;
     int seconds = DEFAULT_SECONDS;
     int force = 0;
@@ -181,8 +177,6 @@ int main(int argc, char * argv[]) {
         if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
             print_usage(argv[0]);
             return EXIT_SUCCESS;
-        } else if (strncmp(argv[i], "--depth=", strlen("--depth=")) == 0) {
-            search_depth = atoi(argv[i] + strlen("--depth="));
         } else if (strncmp(argv[i], "--entries=", strlen("--entries=")) == 0) {
             entries = atoi(argv[i] + strlen("--entries="));
         } else if (strncmp(argv[i], "--seconds=", strlen("--seconds=")) == 0) {
@@ -197,12 +191,7 @@ int main(int argc, char * argv[]) {
     }
 
     if (entries == 0) {
-        if (search_depth < 1) {
-            fprintf(stderr, "Error: search depth must be at least 1\n");
-            return EXIT_FAILURE;
-        }
-
-        entries = entries_for_depth(search_depth);
+        entries = default_entries();
     }
 
     if (entries < 1) {

@@ -58,9 +58,16 @@ typedef struct {
     char last_play_y;
 } board_ext_t;
 
+// A transposition table entry. draft is how many plies were still left to search below the node
+// when the score was produced, so a shallower entry can be recognised and its score refused;
+// quiescence entries store 0. age is the number of the search that wrote it, which is what lets an
+// entry left over from an earlier move be picked as the one to overwrite. Sixteen bytes.
 typedef struct {
     int64_t hash;
-    int score_w_type;
+    int32_t score_w_type;
+    int16_t best_play;
+    int8_t draft;
+    uint8_t age;
 } hash_table_entry_t;
 
 #define MAX_SEARCH_DEPTH 5
