@@ -70,8 +70,11 @@ typedef struct {
     uint8_t age;
 } hash_table_entry_t;
 
-#define MAX_SEARCH_DEPTH 5
-// Extra plies the capture-only (quiescence) search is allowed to spend past MAX_SEARCH_DEPTH
+// Depth iterative deepening stops at when nothing else limits it, and the depth a plain "go" with
+// no time control uses, which keeps that case deterministic for regression testing.
+#define MAX_SEARCH_DEPTH 64
+#define DEFAULT_SEARCH_DEPTH 5
+// Extra plies the capture-only (quiescence) search is allowed to spend past the main search
 #define QUIESCENCE_EXTRA_DEPTH 2
 #define MAX_TOTAL_SEARCH_DEPTH (MAX_SEARCH_DEPTH + QUIESCENCE_EXTRA_DEPTH)
 #define HASH_TABLE_SIZE 8388608

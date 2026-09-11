@@ -34,6 +34,32 @@ static int64_t zobrist_castling[4];
 
 static hash_table_entry_t * hash_table;
 
+static struct timeval search_start;
+static long search_budget_ms;
+static int search_depth_limit = DEFAULT_SEARCH_DEPTH;
+static int search_aborted;
+static uint64_t search_nodes;
+
+static long elapsed_ms(struct timeval start, struct timeval end) {
+    return (end.tv_sec - start.tv_sec) * 1000L + (end.tv_usec - start.tv_usec) / 1000L;
+}
+
+static long search_elapsed_ms() {
+    struct timeval now;
+    gettimeofday(&now, NULL);
+
+    return elapsed_ms(search_start, now);
+}
+
+static int out_of_time() {
+    // avoid calling gettimeofday at every node
+    if ((++search_nodes & 4095) != 0 || search_budget_ms == 0) {
+        return 0;
+    }
+
+    return search_elapsed_ms() >= search_budget_ms;
+}
+
 static unsigned int opening_book_size;
 static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
 static char ob_play_colors[MAX_SUPPORTED_OB_RULES];
@@ -2641,6 +2667,11 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
 // ceiling (for black) of the node. The one exception is being in check, where doing nothing is not
 // legal: there every reply is searched, quiet ones included, and only the depth limit ends it.
 static int minimax_white_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+    if (search_aborted || out_of_time()) {
+        search_aborted = 1;
+        return 0;
+    }
+
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -2755,7 +2786,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         }
     }
 
-    if (best_score != NO_SCORE) {
+    if (!search_aborted && best_score != NO_SCORE) {
         int type;
         if (best_score <= alpha_orig) {
             type = TYPE_UPPER_BOUND;
@@ -2772,6 +2803,11 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
 }
 
 static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+    if (search_aborted || out_of_time()) {
+        search_aborted = 1;
+        return 0;
+    }
+
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -2885,7 +2921,7 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         }
     }
 
-    if (best_score != NO_SCORE) {
+    if (!search_aborted && best_score != NO_SCORE) {
         int type;
         if (best_score <= alpha_orig) {
             type = TYPE_UPPER_BOUND;
@@ -2904,6 +2940,11 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
 static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash);
 
 static int minimax_white(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+    if (search_aborted || out_of_time()) {
+        search_aborted = 1;
+        return 0;
+    }
+
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -3052,7 +3093,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
         }
     }
 
-    if (best_score != NO_SCORE) {
+    if (!search_aborted && best_score != NO_SCORE) {
         int type;
         if (best_score <= alpha_orig) {
             type = TYPE_UPPER_BOUND;
@@ -3069,6 +3110,11 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
 }
 
 static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+    if (search_aborted || out_of_time()) {
+        search_aborted = 1;
+        return 0;
+    }
+
     if (board->halfmoves == 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
@@ -3216,7 +3262,7 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
         }
     }
 
-    if (best_score != NO_SCORE) {
+    if (!search_aborted && best_score != NO_SCORE) {
         int type;
         if (best_score <= alpha_orig) {
             type = TYPE_UPPER_BOUND;
@@ -3286,8 +3332,6 @@ static int ai_play(play_t * play) {
 
     play_t valid_plays[218];
     board_t board_cpy;
-    int alpha = -2147483644;
-    int beta = 2147483644;
 
     int valid_plays_i = enumerate_legal_plays(valid_plays, &board);
     if (valid_plays_i == 0) {
@@ -3298,16 +3342,13 @@ static int ai_play(play_t * play) {
         }
     }
 
-    int best_score = NO_SCORE;
-    int best_play = 0;
-
-    // One search per move played. The table is not cleared between them: what it holds is still
-    // true of the positions it names, and the entries this search never reaches are exactly the
-    // ones hash_table_insert gives away first.
     ++hash_table_age;
 
     int64_t root_hash = hash_from_board(&board);
 
+    // Whether each root play repeats a position for the third time. Fixed for the whole search, so
+    // it is not worth recomputing once per iteration.
+    char repeats[218];
     for (int i = 0; i < valid_plays_i; ++i) {
         memcpy(&board_cpy, &board, sizeof(board_t));
 
@@ -3331,41 +3372,100 @@ static int ai_play(play_t * play) {
             }
         }
 
-        int score;
-        if (position_repeated == 2) {
-            score = DRAW_SCORE;
-        } else {
-            if (board_cpy.color == WHITE_COLOR) {
-                score = minimax_white(&board_cpy, 0, MAX_SEARCH_DEPTH, alpha, beta, child_hash);
+        repeats[i] = (position_repeated == 2);
+    }
+
+    gettimeofday(&search_start, NULL);
+    search_aborted = 0;
+    search_nodes = 0;
+
+    int best_score = NO_SCORE;
+    int searched = 0;
+
+    for (int max_depth = 1; max_depth <= search_depth_limit; ++max_depth) {
+        int alpha = -2147483644;
+        int beta = 2147483644;
+        int iter_score = NO_SCORE;
+        int iter_play = 0;
+
+        for (int i = 0; i < valid_plays_i; ++i) {
+            int score;
+
+            if (repeats[i]) {
+                score = DRAW_SCORE;
             } else {
-                score = minimax_black(&board_cpy, 0, MAX_SEARCH_DEPTH, alpha, beta, child_hash);
+                memcpy(&board_cpy, &board, sizeof(board_t));
+
+                int64_t child_hash = root_hash;
+
+                if (board_cpy.color == WHITE_COLOR) {
+                    just_play_white_complex(&board_cpy, &valid_plays[i], &child_hash);
+                } else {
+                    just_play_black_complex(&board_cpy, &valid_plays[i], &child_hash);
+                }
+
+                if (board_cpy.color == WHITE_COLOR) {
+                    score = minimax_white(&board_cpy, 0, max_depth, alpha, beta, child_hash);
+                } else {
+                    score = minimax_black(&board_cpy, 0, max_depth, alpha, beta, child_hash);
+                }
+            }
+
+            if (search_aborted) {
+                break;
+            }
+
+            if (score != NO_SCORE) {
+                if (board.color == WHITE_COLOR) {
+                    if (iter_score == NO_SCORE || score > iter_score) {
+                        iter_score = score;
+                        iter_play = i;
+                    }
+                    alpha = MAX(alpha, score);
+                } else {
+                    if (iter_score == NO_SCORE || score < iter_score) {
+                        iter_score = score;
+                        iter_play = i;
+                    }
+                    beta = MIN(beta, score);
+                }
             }
         }
 
-        if (score != NO_SCORE) {
-            if (board.color == WHITE_COLOR) {
-                if (best_score == NO_SCORE || score > best_score) {
-                    best_score = score;
-                    best_play = i;
-                }
-                if (score >= beta) {
-                    break;
-                }
-                alpha = MAX(alpha, score);
-            } else {
-                if (best_score == NO_SCORE || score < best_score) {
-                    best_score = score;
-                    best_play = i;
-                }
-                if (score <= alpha) {
-                    break;
-                }
-                beta = MIN(beta, score);
-            }
+        // An iteration that ran out of time part way through has only seen some of the plays, so
+        // the one it likes best means nothing. The previous iteration's answer stands.
+        if (search_aborted || iter_score == NO_SCORE) {
+            break;
+        }
+
+        best_score = iter_score;
+        searched = 1;
+
+        // We lead the next iteration with this one's best play for the most gain of searching by
+        // increasing depth comes from.
+        if (iter_play != 0) {
+            play_t tmp_play = valid_plays[0];
+            valid_plays[0] = valid_plays[iter_play];
+            valid_plays[iter_play] = tmp_play;
+
+            char tmp_repeat = repeats[0];
+            repeats[0] = repeats[iter_play];
+            repeats[iter_play] = tmp_repeat;
+        }
+
+        if (best_score >= MATE_THRESHOLD || best_score <= -MATE_THRESHOLD) {
+            break;
+        }
+
+        // Starting an iteration there is no chance of finishing spends the rest of the budget on a
+        // result that gets thrown away.
+        if (search_budget_ms != 0 && search_elapsed_ms() * 3 >= search_budget_ms) {
+            break;
         }
     }
 
-    if (best_score == NO_SCORE) {
+    // Running out of time before a single iteration finished still has to answer with a legal play.
+    if (!searched && !search_aborted) {
         if (king_threatened(&board)) {
             return CHECK_MATE;
         } else {
@@ -3373,15 +3473,24 @@ static int ai_play(play_t * play) {
         }
     }
 
-    actual_play(&board, &board_ext, &valid_plays[best_play]);
-    *play = valid_plays[best_play];
+    actual_play(&board, &board_ext, &valid_plays[0]);
+    *play = valid_plays[0];
     return 1;
+}
+
+// Past the end of standard input fgets returns immediately and forever, which turns every prompt
+// below into a busy loop, so a closed input ends the program instead.
+static void read_input_line() {
+    if (fgets(buffer, 1024, stdin) == NULL) {
+        printf("\n");
+        exit(EXIT_SUCCESS);
+    }
 }
 
 static char input_promotion_piece() {
     while (1) {
         printf("Promotion choice (options: Q, N, B, R): ");
-        fgets(buffer, 1024, stdin);
+        read_input_line();
 
         if (buffer[0] == 'q' || buffer[0] == 'Q') {
             return PROMOTION_QUEEN;
@@ -3462,11 +3571,11 @@ static void undo_last_plays() {
 static int input_play(play_t * play, const play_t * valid_plays, int valid_plays_i) {
     while (1) {
         printf("Input (example: e2e4): ");
-        fgets(buffer, 1024, stdin);
+        read_input_line();
 
         buffer[5] = 0;
         if (strcmp(buffer, "quit\n") == 0) {
-            exit(EXIT_FAILURE);
+            exit(EXIT_SUCCESS);
         }
         if (strcmp(buffer, "undo\n") == 0) {
             if (board_ext.past_plays_count >= 2 && board_ext.past_plays_count < 256) {
@@ -3617,7 +3726,7 @@ static void text_mode() {
     int player_two_is_human;
 
     while (1) {
-        fgets(buffer, 1024, stdin);
+        read_input_line();
 
         if (strcmp(buffer, "1\n") == 0) {
             player_one_is_human = 1;
@@ -3651,6 +3760,47 @@ static FILE * init_log_file(const char * program_name) {
 
     sprintf(buffer, "%s_%ld_%s.log", program_name, time(NULL), str);
     return fopen(buffer, "a");
+}
+
+// Value of a "name N" pair in a go command, or -1 when the command does not carry it.
+static long read_go_option(const char * cmd, const char * name) {
+    char key[32];
+    sprintf(key, " %s ", name);
+
+    const char * at = strstr(cmd, key);
+    if (at == NULL) {
+        return -1;
+    }
+
+    return atol(at + strlen(key));
+}
+
+static void set_search_limits(const char * cmd) {
+    search_depth_limit = DEFAULT_SEARCH_DEPTH;
+    search_budget_ms = 0;
+
+    long depth = read_go_option(cmd, "depth");
+    long movetime = read_go_option(cmd, "movetime");
+    long my_time = read_go_option(cmd, board.color == WHITE_COLOR ? "wtime" : "btime");
+    long my_increment = read_go_option(cmd, board.color == WHITE_COLOR ? "winc" : "binc");
+    long movestogo = read_go_option(cmd, "movestogo");
+
+    // "go infinite" is deliberately not honoured: without a "stop" command to end it
+    if (depth > 0) {
+        search_depth_limit = (int)MIN(depth, (long)MAX_SEARCH_DEPTH);
+    } else if (movetime > 0) {
+        search_depth_limit = MAX_SEARCH_DEPTH;
+        search_budget_ms = movetime;
+    } else if (my_time > 0) {
+        // With no movestogo the game is assumed to have about 30 moves left in it, which is what
+        // keeps the early moves from eating a clock the endgame still needs.
+        search_depth_limit = MAX_SEARCH_DEPTH;
+        search_budget_ms = my_time / (movestogo > 0 ? movestogo : 30) + (my_increment > 0 ? my_increment * 3 / 4 : 0);
+    }
+
+    if (search_budget_ms != 0 && my_time > 0 && search_budget_ms > my_time - 50) {
+        search_budget_ms = MAX(my_time - 50, 10);
+    }
 }
 
 static void uci_mode(FILE * fd) {
@@ -3770,6 +3920,8 @@ static void uci_mode(FILE * fd) {
             }
 
             play_t play;
+
+            set_search_limits(buffer);
 
             int played = ai_play(&play);
             if (played == CHECK_MATE) {
