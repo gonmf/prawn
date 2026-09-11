@@ -51,6 +51,29 @@ static long search_elapsed_ms() {
     return elapsed_ms(search_start, now);
 }
 
+// Hashes of the positions the game has already been through, followed by the ones on the path to
+// the node being searched. search_history_count is where the second part starts.
+static int64_t search_history[256 + MAX_TOTAL_SEARCH_DEPTH + 4];
+static int search_history_count;
+
+// A position already seen is scored as a draw on its first repetition rather than its third: a side
+// able to repeat once can nearly always repeat again, and waiting for the third costs plies to see.
+// Only positions since the last pawn play or capture can repeat, which is what bounds the scan.
+static int is_repetition(int64_t hash, int depth, int halfmoves) {
+    int limit = search_history_count + depth - halfmoves;
+    if (limit < 0) {
+        limit = 0;
+    }
+
+    for (int i = search_history_count + depth - 2; i >= limit; i -= 2) {
+        if (search_history[i] == hash) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static int out_of_time() {
     // avoid calling gettimeofday at every node
     if ((++search_nodes & 4095) != 0 || search_budget_ms == 0) {
@@ -808,6 +831,8 @@ static void just_play_white_pawn(board_t * board, const play_t * play, int64_t *
     int to_p = to_y * 8 + to_x;
     char promotion_option = play->promotion_option;
 
+    board->halfmoves = 0;
+
     char from_piece = 'P';
     char to_piece = identify_piece_black(board, to_p);
 
@@ -913,6 +938,8 @@ static void just_play_white_complex(board_t * board, const play_t * play, int64_
     int to_p = to_y * 8 + to_x;
 
     char to_piece = identify_piece_black(board, to_p);
+
+    board->halfmoves = (to_piece == ' ') ? board->halfmoves + 1 : 0;
 
     int64_t hash = *out_hash;
 
@@ -1046,6 +1073,8 @@ static void just_play_black_pawn(board_t * board, const play_t * play, int64_t *
     int to_p = to_y * 8 + to_x;
     char promotion_option = play->promotion_option;
 
+    board->halfmoves = 0;
+
     char from_piece = 'p';
     char to_piece = identify_piece_white(board, to_p);
 
@@ -1151,6 +1180,8 @@ static void just_play_black_complex(board_t * board, const play_t * play, int64_
     int to_p = to_y * 8 + to_x;
 
     char to_piece = identify_piece_white(board, to_p);
+
+    board->halfmoves = (to_piece == ' ') ? board->halfmoves + 1 : 0;
 
     int64_t hash = *out_hash;
 
@@ -1281,15 +1312,8 @@ static void actual_play(board_t * board, board_ext_t * board_ext, const play_t *
         board_ext->past_plays[board_ext->past_plays_count].to_x = play->to_x;
         board_ext->past_plays[board_ext->past_plays_count].to_y = play->to_y;
         board_ext->past_plays[board_ext->past_plays_count].promotion_option = play->promotion_option;
-        board_to_short_string(board_ext->past_positions[board_ext->past_plays_count], board);
+        board_ext->past_hashes[board_ext->past_plays_count] = hash_from_board(board);
         board_ext->past_plays_count++;
-    }
-
-    char moving_piece = identify_piece(board, play->from_y * 8 + play->from_x);
-    if (moving_piece == 'P' || moving_piece == 'p' || identify_piece(board, play->to_y * 8 + play->to_x) != ' ') {
-        board->halfmoves = 0;
-    } else {
-        board->halfmoves++;
     }
 
     board_ext->last_play_x = play->to_x;
@@ -2672,7 +2696,9 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         return 0;
     }
 
-    if (board->halfmoves == 100 || insufficient_material(board)) {
+    search_history[search_history_count + depth] = hash;
+
+    if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
 
@@ -2808,7 +2834,9 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         return 0;
     }
 
-    if (board->halfmoves == 100 || insufficient_material(board)) {
+    search_history[search_history_count + depth] = hash;
+
+    if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
 
@@ -2945,7 +2973,9 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
         return 0;
     }
 
-    if (board->halfmoves == 100 || insufficient_material(board)) {
+    search_history[search_history_count + depth] = hash;
+
+    if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
 
@@ -3115,7 +3145,9 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
         return 0;
     }
 
-    if (board->halfmoves == 100 || insufficient_material(board)) {
+    search_history[search_history_count + depth] = hash;
+
+    if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
 
@@ -3314,7 +3346,21 @@ static int insufficient_material(const board_t * board) {
 }
 
 static int is_game_drawn() {
-    return insufficient_material(&board);
+    if (insufficient_material(&board) || board.halfmoves >= 100) {
+        return 1;
+    }
+
+    // Threefold repetition, the position on the board being the third occurrence.
+    int64_t hash = hash_from_board(&board);
+    int seen = 0;
+
+    for (unsigned int i = 0; i < board_ext.past_plays_count; ++i) {
+        if (board_ext.past_hashes[i] == hash) {
+            seen++;
+        }
+    }
+
+    return seen >= 2;
 }
 
 static int ai_play(play_t * play) {
@@ -3346,34 +3392,11 @@ static int ai_play(play_t * play) {
 
     int64_t root_hash = hash_from_board(&board);
 
-    // Whether each root play repeats a position for the third time. Fixed for the whole search, so
-    // it is not worth recomputing once per iteration.
-    char repeats[218];
-    for (int i = 0; i < valid_plays_i; ++i) {
-        memcpy(&board_cpy, &board, sizeof(board_t));
-
-        int64_t child_hash = root_hash;
-
-        if (board_cpy.color == WHITE_COLOR) {
-            just_play_white_complex(&board_cpy, &valid_plays[i], &child_hash);
-        } else {
-            just_play_black_complex(&board_cpy, &valid_plays[i], &child_hash);
-        }
-
-        board_to_short_string(buffer, &board_cpy);
-
-        int position_repeated = 0;
-        for (unsigned int pos = 0; pos < board_ext.past_plays_count; ++pos) {
-            if (strcmp(board_ext.past_positions[pos], buffer) == 0) {
-                position_repeated++;
-                if (position_repeated == 2) {
-                    break;
-                }
-            }
-        }
-
-        repeats[i] = (position_repeated == 2);
+    search_history_count = 0;
+    for (unsigned int i = 0; i < board_ext.past_plays_count; ++i) {
+        search_history[search_history_count++] = board_ext.past_hashes[i];
     }
+    search_history[search_history_count++] = root_hash;
 
     gettimeofday(&search_start, NULL);
     search_aborted = 0;
@@ -3389,26 +3412,21 @@ static int ai_play(play_t * play) {
         int iter_play = 0;
 
         for (int i = 0; i < valid_plays_i; ++i) {
-            int score;
+            memcpy(&board_cpy, &board, sizeof(board_t));
 
-            if (repeats[i]) {
-                score = DRAW_SCORE;
+            int64_t child_hash = root_hash;
+
+            if (board_cpy.color == WHITE_COLOR) {
+                just_play_white_complex(&board_cpy, &valid_plays[i], &child_hash);
             } else {
-                memcpy(&board_cpy, &board, sizeof(board_t));
+                just_play_black_complex(&board_cpy, &valid_plays[i], &child_hash);
+            }
 
-                int64_t child_hash = root_hash;
-
-                if (board_cpy.color == WHITE_COLOR) {
-                    just_play_white_complex(&board_cpy, &valid_plays[i], &child_hash);
-                } else {
-                    just_play_black_complex(&board_cpy, &valid_plays[i], &child_hash);
-                }
-
-                if (board_cpy.color == WHITE_COLOR) {
-                    score = minimax_white(&board_cpy, 0, max_depth, alpha, beta, child_hash);
-                } else {
-                    score = minimax_black(&board_cpy, 0, max_depth, alpha, beta, child_hash);
-                }
+            int score;
+            if (board_cpy.color == WHITE_COLOR) {
+                score = minimax_white(&board_cpy, 0, max_depth, alpha, beta, child_hash);
+            } else {
+                score = minimax_black(&board_cpy, 0, max_depth, alpha, beta, child_hash);
             }
 
             if (search_aborted) {
@@ -3447,10 +3465,6 @@ static int ai_play(play_t * play) {
             play_t tmp_play = valid_plays[0];
             valid_plays[0] = valid_plays[iter_play];
             valid_plays[iter_play] = tmp_play;
-
-            char tmp_repeat = repeats[0];
-            repeats[0] = repeats[iter_play];
-            repeats[iter_play] = tmp_repeat;
         }
 
         if (best_score >= MATE_THRESHOLD || best_score <= -MATE_THRESHOLD) {
