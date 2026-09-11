@@ -16,4 +16,4 @@ debug: *.c
 	$(CC) -g -O0 $(CFLAGS) *.c -o prawn-debug
 
 clean:
-	rm -rf prawn prawn-debug bait zobrist-gen *.log prawn-debug.dSYM
+	rm -rf prawn prawn-debug bait zobrist-gen *.log prawn-*.dSYM
