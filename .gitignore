@@ -6,6 +6,7 @@ prawn-debug.dSYM/
 *.log
 bait
 bait.input
+perft
 zobrist-gen
 cutechess-cli
 .DS_Store

@@ -38,6 +38,19 @@ To do this run
 Regression testing from a given collection automatically disables the openings
 book.
 
+## Move generator tests
+
+**perft** counts the leaves of the legal move tree to a given depth. The counts
+for a set of standard positions are known exactly, so any mismatch means the
+generator is missing a move, inventing one, or getting legality wrong somewhere
+in that tree.
+
+```sh
+make test
+
+./perft "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1" 3
+```
+
 ## Zobrist tables
 
 **prawn** does not generate its Zobrist keys at startup; it reads them from a

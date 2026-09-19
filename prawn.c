@@ -26,9 +26,7 @@ static uint64_t knight_moves_masks[64];
 static uint64_t king_moves_masks[64];
 
 static int64_t zobrist_map[64][12];
-// Xored in by every just_play_*, and by hash_from_board when it is black to move, so that the same
-// men on the same squares hash differently depending on whose turn it is.
-static int64_t zobrist_side_to_move;
+static int64_t zobrist_side_to_move; // hashes when black
 static int64_t zobrist_en_passant[8];
 static int64_t zobrist_castling[4];
 
@@ -39,6 +37,8 @@ static long search_budget_ms;
 static int search_depth_limit = DEFAULT_SEARCH_DEPTH;
 static int search_aborted;
 static uint64_t search_nodes;
+// Prevent stopping when running out of time in the first search iteration (of increasing depth).
+static int search_abortable;
 
 static long elapsed_ms(struct timeval start, struct timeval end) {
     return (end.tv_sec - start.tv_sec) * 1000L + (end.tv_usec - start.tv_usec) / 1000L;
@@ -58,7 +58,7 @@ static int search_history_count;
 
 // A position already seen is scored as a draw on its first repetition rather than its third: a side
 // able to repeat once can nearly always repeat again, and waiting for the third costs plies to see.
-// Only positions since the last pawn play or capture can repeat, which is what bounds the scan.
+// Only positions since the last pawn play or capture can repeat, which is what bounds the search.
 static int is_repetition(int64_t hash, int depth, int halfmoves) {
     int limit = search_history_count + depth - halfmoves;
     if (limit < 0) {
@@ -76,7 +76,7 @@ static int is_repetition(int64_t hash, int depth, int halfmoves) {
 
 static int out_of_time() {
     // avoid calling gettimeofday at every node
-    if ((++search_nodes & 4095) != 0 || search_budget_ms == 0) {
+    if ((++search_nodes & 4095) != 0 || search_budget_ms == 0 || !search_abortable) {
         return 0;
     }
 
@@ -90,6 +90,7 @@ static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
 
 static int opening_book_enabled = 1;
 static int extend_uci = 0;
+static int arbitrate_draws = 1;
 static int uci_game_in_error_state = 0;
 static int convert_at_ob_depth = -1;
 
@@ -111,6 +112,16 @@ static void init_opening_book() {
 
     play.promotion_option = 0;
     FILE * fp = fopen("openings.txt", "r");
+    if (fp == NULL) {
+        if (convert_at_ob_depth != -1) {
+            fprintf(stderr, "Opening book openings.txt not found.\n");
+            exit(EXIT_FAILURE);
+        }
+
+        fprintf(stderr, "Opening book openings.txt not found, playing without one.\n");
+        opening_book_enabled = 0;
+        return;
+    }
 
     while (opening_book_size < MAX_SUPPORTED_OB_RULES) {
         file_row += 1;
@@ -469,6 +480,11 @@ static void populate_zobrist_masks() {
     }
 
     int64_t * zobrist_file = malloc(sizeof(int64_t) * nItems);
+    if (zobrist_file == NULL) {
+        fprintf(stderr, "Could not allocate %d Zobrist keys.\n", nItems);
+        exit(EXIT_FAILURE);
+    }
+
     if (fread(zobrist_file, sizeof(int64_t), nItems, s) != (size_t)nItems) {
         fprintf(stderr, "Zobrist file %s is too short, expected %d entries.\n", buffer, nItems);
         exit(EXIT_FAILURE);
@@ -2071,313 +2087,131 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
 }
 
 // Ignores capturing via en passant
-static uint64_t mask_attacked_positions_by_white(const board_t * board) {
+static int square_attacked_by(const board_t * board, int sq, int by_white) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
-    uint64_t attacked = 0;
+    uint64_t occupied = white_mask | black_mask;
 
-    // Pawn captures
-    uint64_t moves = board->white_pawns;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-
-        uint64_t moves_to = white_pawn_capture_masks[from] & black_mask;
-        attacked |= moves_to;
-
-        moves &= moves - 1;
+    uint64_t knights, kings, pawns, pawn_origins, rooks_queens, bishops_queens;
+    if (by_white) {
+        knights = board->white_knights;
+        kings = board->white_kings;
+        pawns = board->white_pawns;
+        pawn_origins = black_pawn_capture_masks[sq];
+        rooks_queens = board->white_rooks | board->white_queens;
+        bishops_queens = board->white_bishops | board->white_queens;
+    } else {
+        knights = board->black_knights;
+        kings = board->black_kings;
+        pawns = board->black_pawns;
+        pawn_origins = white_pawn_capture_masks[sq];
+        rooks_queens = board->black_rooks | board->black_queens;
+        bishops_queens = board->black_bishops | board->black_queens;
     }
 
-    // Knight captures
-    moves = board->white_knights;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-
-        uint64_t moves_to = knight_moves_masks[from] & black_mask;
-        attacked |= moves_to;
-
-        moves &= moves - 1;
+    if (knight_moves_masks[sq] & knights) {
+        return 1;
+    }
+    if (king_moves_masks[sq] & kings) {
+        return 1;
+    }
+    if (pawn_origins & pawns) {
+        return 1;
     }
 
-    // King captures
-    moves = board->white_kings;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
+    static const int directions[8][2] = {
+        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+        {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
+    };
 
-        uint64_t moves_to = king_moves_masks[from] & black_mask;
-        attacked |= moves_to;
+    int from_x = sq % 8;
+    int from_y = sq / 8;
 
-        moves &= moves - 1;
-    }
-
-    // Rook and queen captures
-    moves = board->white_rooks | board->white_queens;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
-
-        int to_x = from_x + 1;
-        int to = from_y * 8 + from_x;
-        uint64_t to_mask = 1ULL << to;
-        while (to_x < 8) {
-            to_mask = to_mask << 1;
-            if (to_mask & white_mask) {
-                break;
-            }
-
-            if (to_mask & black_mask) {
-                attacked |= to_mask;
-                break;
-            }
-
-            to_x += 1;
+    for (int d = 0; d < 8; ++d) {
+        uint64_t sliders = d < 4 ? rooks_queens : bishops_queens;
+        if (sliders == 0) {
+            continue;
         }
 
-        to_x = from_x - 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_x >= 0) {
-            to_mask = to_mask >> 1;
-            if (to_mask & white_mask) {
-                break;
-            }
+        int dx = directions[d][0];
+        int dy = directions[d][1];
+        int x = from_x + dx;
+        int y = from_y + dy;
 
-            if (to_mask & black_mask) {
-                attacked |= to_mask;
-                break;
-            }
+        while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+            uint64_t to_mask = 1ULL << (y * 8 + x);
 
-            to_x -= 1;
-        }
-
-        int to_y = from_y + 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_y < 8) {
-            to_mask = to_mask << 8;
-            if (to_mask & white_mask) {
-                break;
-            }
-
-            if (to_mask & black_mask) {
-                attacked |= to_mask;
-                break;
-            }
-
-            to_y += 1;
-        }
-
-        to_y = from_y - 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_y >= 0) {
-            to_mask = to_mask >> 8;
-            if (to_mask & white_mask) {
-                break;
-            }
-
-            if (to_mask & black_mask) {
-                attacked |= to_mask;
-                break;
-            }
-
-            to_y -= 1;
-        }
-
-        moves &= moves - 1;
-    }
-
-    // Bishop and queen captures
-    moves = board->white_bishops | board->white_queens;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
-
-        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
-
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
-
-                if (to_mask & white_mask) {
-                    break;
+            if (occupied & to_mask) {
+                if (sliders & to_mask) {
+                    return 1;
                 }
-
-                if (to_mask & black_mask) {
-                    attacked |= to_mask;
-                    break;
-                }
-
-                x += dx;
-                y += dy;
+                break;
             }
-        }
 
-        moves &= moves - 1;
+            x += dx;
+            y += dy;
+        }
     }
 
-    return attacked;
+    return 0;
 }
 
-// Ignores capturing via en passant
-static uint64_t mask_attacked_positions_by_black(const board_t * board) {
+static uint64_t compute_pins(const board_t * board, int king_p, int own_is_white, uint64_t * pin_ray) {
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
-    uint64_t attacked = 0;
+    uint64_t occupied = white_mask | black_mask;
+    uint64_t own = own_is_white ? white_mask : black_mask;
+    uint64_t enemy_rooks_queens = own_is_white ? (board->black_rooks | board->black_queens) : (board->white_rooks | board->white_queens);
+    uint64_t enemy_bishops_queens = own_is_white ? (board->black_bishops | board->black_queens) : (board->white_bishops | board->white_queens);
 
-    // Pawn captures
-    uint64_t moves = board->black_pawns;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
+    static const int directions[8][2] = {
+        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+        {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
+    };
 
-        uint64_t moves_to = black_pawn_capture_masks[from] & white_mask;
-        attacked |= moves_to;
+    uint64_t pinned = 0;
+    int from_x = king_p % 8;
+    int from_y = king_p / 8;
 
-        moves &= moves - 1;
-    }
-
-    // Knight captures
-    moves = board->black_knights;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-
-        uint64_t moves_to = knight_moves_masks[from] & white_mask;
-        attacked |= moves_to;
-
-        moves &= moves - 1;
-    }
-
-    // King captures
-    moves = board->black_kings;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-
-        uint64_t moves_to = king_moves_masks[from] & white_mask;
-        attacked |= moves_to;
-
-        moves &= moves - 1;
-    }
-
-    // Rook and queen captures
-    moves = board->black_rooks | board->black_queens;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
-
-        int to_x = from_x + 1;
-        int to = from_y * 8 + from_x;
-        uint64_t to_mask = 1ULL << to;
-        while (to_x < 8) {
-            to_mask = to_mask << 1;
-            if (to_mask & black_mask) {
-                break;
-            }
-
-            if (to_mask & white_mask) {
-                attacked |= to_mask;
-                break;
-            }
-
-            to_x += 1;
+    for (int d = 0; d < 8; ++d) {
+        uint64_t sliders = d < 4 ? enemy_rooks_queens : enemy_bishops_queens;
+        if (sliders == 0) {
+            continue;
         }
 
-        to_x = from_x - 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_x >= 0) {
-            to_mask = to_mask >> 1;
-            if (to_mask & black_mask) {
-                break;
-            }
+        int dx = directions[d][0];
+        int dy = directions[d][1];
+        int x = from_x + dx;
+        int y = from_y + dy;
+        uint64_t ray = 0;
+        int candidate = -1;
 
-            if (to_mask & white_mask) {
-                attacked |= to_mask;
-                break;
-            }
+        while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+            int to = y * 8 + x;
+            uint64_t to_mask = 1ULL << to;
+            ray |= to_mask;
 
-            to_x -= 1;
-        }
-
-        int to_y = from_y + 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_y < 8) {
-            to_mask = to_mask << 8;
-            if (to_mask & black_mask) {
-                break;
-            }
-
-            if (to_mask & white_mask) {
-                attacked |= to_mask;
-                break;
-            }
-
-            to_y += 1;
-        }
-
-        to_y = from_y - 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_y >= 0) {
-            to_mask = to_mask >> 8;
-            if (to_mask & black_mask) {
-                break;
-            }
-
-            if (to_mask & white_mask) {
-                attacked |= to_mask;
-                break;
-            }
-
-            to_y -= 1;
-        }
-
-        moves &= moves - 1;
-    }
-
-    // Bishop and queen captures
-    moves = board->black_bishops | board->black_queens;
-    while (moves) {
-        int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
-
-        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
-
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
-
-                if (to_mask & black_mask) {
+            if (occupied & to_mask) {
+                if (candidate == -1) {
+                    if (!(own & to_mask)) {
+                        break;
+                    }
+                    candidate = to;
+                } else {
+                    if (sliders & to_mask) {
+                        pinned |= 1ULL << candidate;
+                        pin_ray[candidate] = ray;
+                    }
                     break;
                 }
-
-                if (to_mask & white_mask) {
-                    attacked |= to_mask;
-                    break;
-                }
-
-                x += dx;
-                y += dy;
             }
-        }
 
-        moves &= moves - 1;
+            x += dx;
+            y += dy;
+        }
     }
 
-    return attacked;
+    return pinned;
 }
 
 static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * board) {
@@ -2386,40 +2220,56 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
     int valid_plays_local_i = enumerate_all_possible_plays_white(valid_plays_local, board);
     board_t board_cpy;
 
-    // Castling is only generated with the king on e1, so a play from e1 is a
-    // king play exactly when the king is still there
     int king_on_start = (board->white_kings & (1ULL << (7 * 8 + 4))) != 0ULL;
+    int king_p = board->white_kings ? __builtin_ctzll(board->white_kings) : -1;
 
-    // Castling out of check is illegal; the transit and destination squares are
-    // tested per play below, but e1 itself is only tested before the play
-    int castling_out_of_check = 0;
-    if (king_on_start && (board->white_left_castling || board->white_right_castling)) {
-        castling_out_of_check = (mask_attacked_positions_by_black(board) & board->white_kings) != 0ULL;
+    int in_check = 1;
+    uint64_t pinned = 0;
+    uint64_t pin_ray[64];
+
+    if (king_p >= 0) {
+        in_check = square_attacked_by(board, king_p, 0);
+        if (!in_check) {
+            pinned = compute_pins(board, king_p, 1, pin_ray);
+        }
     }
 
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
-        memcpy(&board_cpy, board, sizeof(board_t));
-        just_play_white_simple(&board_cpy, &valid_plays_local[i]);
+        int from_p = valid_plays_local[i].from_y * 8 + valid_plays_local[i].from_x;
+        int to_p = valid_plays_local[i].to_y * 8 + valid_plays_local[i].to_x;
 
-        uint64_t attacked = mask_attacked_positions_by_black(&board_cpy);
-        if (attacked & board_cpy.white_kings) {
-            continue;
-        }
+        int en_passant = board->en_passant_x == valid_plays_local[i].to_x
+            && valid_plays_local[i].from_y == 3
+            && (board->white_pawns & (1ULL << from_p)) != 0ULL;
 
-        int from_x = valid_plays_local[i].from_x;
-        int from_y = valid_plays_local[i].from_y;
+        if (!in_check && from_p != king_p && !en_passant) {
+            if ((pinned & (1ULL << from_p)) && !(pin_ray[from_p] & (1ULL << to_p))) {
+                continue;
+            }
+        } else {
+            memcpy(&board_cpy, board, sizeof(board_t));
+            just_play_white_simple(&board_cpy, &valid_plays_local[i]);
 
-        if (king_on_start && from_x == 4 && from_y == 7) {
-            int to_x = valid_plays_local[i].to_x;
+            if (board_cpy.white_kings && square_attacked_by(&board_cpy, __builtin_ctzll(board_cpy.white_kings), 0)) {
+                continue;
+            }
 
-            if (to_x == 6) {
-                if (castling_out_of_check || (attacked & (1ULL << (7 * 8 + 5)))) {
-                    continue;
-                }
-            } else if (to_x == 2) {
-                if (castling_out_of_check || (attacked & (1ULL << (7 * 8 + 3)))) {
-                    continue;
+            int from_x = valid_plays_local[i].from_x;
+            int from_y = valid_plays_local[i].from_y;
+
+            // The square the king passes over has to be safe, too
+            if (king_on_start && from_x == 4 && from_y == 7) {
+                int to_x = valid_plays_local[i].to_x;
+
+                if (to_x == 6) {
+                    if (in_check || square_attacked_by(&board_cpy, 7 * 8 + 5, 0)) {
+                        continue;
+                    }
+                } else if (to_x == 2) {
+                    if (in_check || square_attacked_by(&board_cpy, 7 * 8 + 3, 0)) {
+                        continue;
+                    }
                 }
             }
         }
@@ -2437,40 +2287,56 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
     int valid_plays_local_i = enumerate_all_possible_plays_black(valid_plays_local, board);
     board_t board_cpy;
 
-    // Castling is only generated with the king on e8, so a play from e8 is a
-    // king play exactly when the king is still there
     int king_on_start = (board->black_kings & (1ULL << (0 * 8 + 4))) != 0ULL;
+    int king_p = board->black_kings ? __builtin_ctzll(board->black_kings) : -1;
 
-    // Castling out of check is illegal; the transit and destination squares are
-    // tested per play below, but e8 itself is only tested before the play
-    int castling_out_of_check = 0;
-    if (king_on_start && (board->black_left_castling || board->black_right_castling)) {
-        castling_out_of_check = (mask_attacked_positions_by_white(board) & board->black_kings) != 0ULL;
+    int in_check = 1;
+    uint64_t pinned = 0;
+    uint64_t pin_ray[64];
+
+    if (king_p >= 0) {
+        in_check = square_attacked_by(board, king_p, 1);
+        if (!in_check) {
+            pinned = compute_pins(board, king_p, 0, pin_ray);
+        }
     }
 
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
-        memcpy(&board_cpy, board, sizeof(board_t));
-        just_play_black_simple(&board_cpy, &valid_plays_local[i]);
+        int from_p = valid_plays_local[i].from_y * 8 + valid_plays_local[i].from_x;
+        int to_p = valid_plays_local[i].to_y * 8 + valid_plays_local[i].to_x;
 
-        uint64_t attacked = mask_attacked_positions_by_white(&board_cpy);
-        if (attacked & board_cpy.black_kings) {
-            continue;
-        }
+        int en_passant = board->en_passant_x == valid_plays_local[i].to_x
+            && valid_plays_local[i].from_y == 4
+            && (board->black_pawns & (1ULL << from_p)) != 0ULL;
 
-        int from_x = valid_plays_local[i].from_x;
-        int from_y = valid_plays_local[i].from_y;
+        if (!in_check && from_p != king_p && !en_passant) {
+            if ((pinned & (1ULL << from_p)) && !(pin_ray[from_p] & (1ULL << to_p))) {
+                continue;
+            }
+        } else {
+            memcpy(&board_cpy, board, sizeof(board_t));
+            just_play_black_simple(&board_cpy, &valid_plays_local[i]);
 
-        if (king_on_start && from_x == 4 && from_y == 0) {
-            int to_x = valid_plays_local[i].to_x;
+            if (board_cpy.black_kings && square_attacked_by(&board_cpy, __builtin_ctzll(board_cpy.black_kings), 1)) {
+                continue;
+            }
 
-            if (to_x == 6) {
-                if (castling_out_of_check || (attacked & (1ULL << (0 * 8 + 5)))) {
-                    continue;
-                }
-            } else if (to_x == 2) {
-                if (castling_out_of_check || (attacked & (1ULL << (0 * 8 + 3)))) {
-                    continue;
+            int from_x = valid_plays_local[i].from_x;
+            int from_y = valid_plays_local[i].from_y;
+
+            // The square the king passes over has to be safe, too
+            if (king_on_start && from_x == 4 && from_y == 0) {
+                int to_x = valid_plays_local[i].to_x;
+
+                if (to_x == 6) {
+                    if (in_check || square_attacked_by(&board_cpy, 0 * 8 + 5, 1)) {
+                        continue;
+                    }
+                } else if (to_x == 2) {
+                    if (in_check || square_attacked_by(&board_cpy, 0 * 8 + 3, 1)) {
+                        continue;
+                    }
                 }
             }
         }
@@ -2491,17 +2357,11 @@ static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
 }
 
 static int king_threatened_white(const board_t * board) {
-    uint64_t king_mask = board->white_kings;
-    uint64_t attacked = mask_attacked_positions_by_black(board);
-
-    return (attacked & king_mask) != 0ULL;
+    return board->white_kings != 0ULL && square_attacked_by(board, __builtin_ctzll(board->white_kings), 0);
 }
 
 static int king_threatened_black(const board_t * board) {
-    uint64_t king_mask = board->black_kings;
-    uint64_t attacked = mask_attacked_positions_by_white(board);
-
-    return (attacked & king_mask) != 0ULL;
+    return board->black_kings != 0ULL && square_attacked_by(board, __builtin_ctzll(board->black_kings), 1);
 }
 
 static int king_threatened(const board_t * board) {
@@ -2536,7 +2396,7 @@ static int estimate_board_score(const board_t * board) {
     knights = board->black_knights;
     while (knights) {
         int sq = __builtin_ctzll(knights);
-        score -= 320 + knight_pst[63 - sq];
+        score -= 320 + knight_pst[sq ^ 56];
         knights &= knights - 1;
     }
 
@@ -2561,7 +2421,7 @@ static int estimate_board_score(const board_t * board) {
     bishops = board->black_bishops;
     while (bishops) {
         int sq = __builtin_ctzll(bishops);
-        score -= 330 + bishop_pst[63 - sq];
+        score -= 330 + bishop_pst[sq ^ 56];
         bishops &= bishops - 1;
     }
 
@@ -2586,7 +2446,7 @@ static int estimate_board_score(const board_t * board) {
     rooks = board->black_rooks;
     while (rooks) {
         int sq = __builtin_ctzll(rooks);
-        score -= 500 + rook_pst[63 - sq];
+        score -= 500 + rook_pst[sq ^ 56];
         rooks &= rooks - 1;
     }
 
@@ -2611,7 +2471,7 @@ static int estimate_board_score(const board_t * board) {
     queens = board->black_queens;
     while (queens) {
         int sq = __builtin_ctzll(queens);
-        score -= 900 + queen_pst[63 - sq];
+        score -= 900 + queen_pst[sq ^ 56];
         queens &= queens - 1;
     }
 
@@ -2649,7 +2509,7 @@ static int estimate_board_score(const board_t * board) {
     kings = board->black_kings;
     if (kings) {
         int sq = __builtin_ctzll(kings);
-        score -= king_pst[63 - sq];
+        score -= king_pst[sq ^ 56];
     }
 */
 
@@ -2674,7 +2534,7 @@ static int estimate_board_score(const board_t * board) {
     pawns = board->black_pawns;
     while (pawns) {
         int sq = __builtin_ctzll(pawns);
-        score -= 100 + pawn_pst[63 - sq];
+        score -= 100 + pawn_pst[sq ^ 56];
         pawns &= pawns - 1;
     }
 
@@ -2702,12 +2562,8 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         return DRAW_SCORE;
     }
 
-    int alpha_orig = alpha;
-    int beta_orig = beta;
-
     // Quiescence nodes look at captures only, so whatever they return is worth no full ply of
-    // search and is stored at a draft of 0 -- that is what stops a main search node from ever
-    // taking one of these scores for its own. Any entry found here was searched at least this far.
+    // search and is stored at a draft of 0
     int draft = 0;
     int16_t tt_play = 0;
 
@@ -2716,8 +2572,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         tt_play = entry->best_play;
 
         // Only a search that still had at least as far to go as this one says anything about this
-        // node; a shallower entry keeps its play, which is useful whatever depth produced it, and
-        // loses its score.
+        // node; a shallower entry keeps its play
         if (entry->draft >= draft) {
             int score = score_from_hash(unpack_score(entry->score_w_type), depth);
             int type = entry->score_w_type & 3;
@@ -2735,6 +2590,9 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
             }
         }
     }
+
+    int alpha_orig = alpha;
+    int beta_orig = beta;
 
     if (depth == max_depth) {
         int score = estimate_board_score(board);
@@ -2840,12 +2698,8 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         return DRAW_SCORE;
     }
 
-    int alpha_orig = alpha;
-    int beta_orig = beta;
-
     // Quiescence nodes look at captures only, so whatever they return is worth no full ply of
-    // search and is stored at a draft of 0 -- that is what stops a main search node from ever
-    // taking one of these scores for its own. Any entry found here was searched at least this far.
+    // search and is stored at a draft of 0
     int draft = 0;
     int16_t tt_play = 0;
 
@@ -2854,8 +2708,7 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         tt_play = entry->best_play;
 
         // Only a search that still had at least as far to go as this one says anything about this
-        // node; a shallower entry keeps its play, which is useful whatever depth produced it, and
-        // loses its score.
+        // node; a shallower entry keeps its play
         if (entry->draft >= draft) {
             int score = score_from_hash(unpack_score(entry->score_w_type), depth);
             int type = entry->score_w_type & 3;
@@ -2873,6 +2726,9 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
             }
         }
     }
+
+    int alpha_orig = alpha;
+    int beta_orig = beta;
 
     if (depth == max_depth) {
         int score = estimate_board_score(board);
@@ -2979,9 +2835,6 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
         return DRAW_SCORE;
     }
 
-    int alpha_orig = alpha;
-    int beta_orig = beta;
-
     // How many plies this node still has to search below it, which is what its score is worth.
     int draft = max_depth - depth;
     int16_t tt_play = 0;
@@ -2991,8 +2844,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
         tt_play = entry->best_play;
 
         // Only a search that still had at least as far to go as this one says anything about this
-        // node; a shallower entry keeps its play, which is useful whatever depth produced it, and
-        // loses its score.
+        // node; a shallower entry keeps its play
         if (entry->draft >= draft) {
             int score = score_from_hash(unpack_score(entry->score_w_type), depth);
             int type = entry->score_w_type & 3;
@@ -3010,6 +2862,9 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
             }
         }
     }
+
+    int alpha_orig = alpha;
+    int beta_orig = beta;
 
     if (depth == max_depth) {
         int score = estimate_board_score(board);
@@ -3151,9 +3006,6 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
         return DRAW_SCORE;
     }
 
-    int alpha_orig = alpha;
-    int beta_orig = beta;
-
     // How many plies this node still has to search below it, which is what its score is worth.
     int draft = max_depth - depth;
     int16_t tt_play = 0;
@@ -3163,8 +3015,7 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
         tt_play = entry->best_play;
 
         // Only a search that still had at least as far to go as this one says anything about this
-        // node; a shallower entry keeps its play, which is useful whatever depth produced it, and
-        // loses its score.
+        // node; a shallower entry keeps its play
         if (entry->draft >= draft) {
             int score = score_from_hash(unpack_score(entry->score_w_type), depth);
             int type = entry->score_w_type & 3;
@@ -3182,6 +3033,9 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
             }
         }
     }
+
+    int alpha_orig = alpha;
+    int beta_orig = beta;
 
     if (depth == max_depth) {
         int score = estimate_board_score(board);
@@ -3372,7 +3226,7 @@ static int ai_play(play_t * play) {
             return 1;
         }
     }
-    if (is_game_drawn()) {
+    if (arbitrate_draws && is_game_drawn()) {
         return DRAW;
     }
 
@@ -3403,9 +3257,10 @@ static int ai_play(play_t * play) {
     search_nodes = 0;
 
     int best_score = NO_SCORE;
-    int searched = 0;
 
     for (int max_depth = 1; max_depth <= search_depth_limit; ++max_depth) {
+        search_abortable = max_depth > 1;
+
         int alpha = -2147483644;
         int beta = 2147483644;
         int iter_score = NO_SCORE;
@@ -3457,7 +3312,6 @@ static int ai_play(play_t * play) {
         }
 
         best_score = iter_score;
-        searched = 1;
 
         // We lead the next iteration with this one's best play for the most gain of searching by
         // increasing depth comes from.
@@ -3478,15 +3332,8 @@ static int ai_play(play_t * play) {
         }
     }
 
-    // Running out of time before a single iteration finished still has to answer with a legal play.
-    if (!searched && !search_aborted) {
-        if (king_threatened(&board)) {
-            return CHECK_MATE;
-        } else {
-            return DRAW;
-        }
-    }
-
+    // The first iteration is never abandoned part way, so valid_plays[0] is always the best
+    // play of the deepest iteration that finished.
     actual_play(&board, &board_ext, &valid_plays[0]);
     *play = valid_plays[0];
     return 1;
@@ -3773,7 +3620,14 @@ static FILE * init_log_file(const char * program_name) {
     str[4] = 0;
 
     sprintf(buffer, "%s_%ld_%s.log", program_name, time(NULL), str);
-    return fopen(buffer, "a");
+
+    FILE * fd = fopen(buffer, "a");
+    if (fd == NULL) {
+        fprintf(stderr, "Could not open log file %s, logging to stderr.\n", buffer);
+        return stderr;
+    }
+
+    return fd;
 }
 
 // Value of a "name N" pair in a go command, or -1 when the command does not carry it.
@@ -3821,6 +3675,8 @@ static void uci_mode(FILE * fd) {
     fprintf(fd, "# Starting in UCI mode.\n");
     fflush(fd);
 
+    arbitrate_draws = extend_uci;
+
     while (1) {
         if (fgets(buffer, 1024, stdin) == NULL) {
             break;
@@ -3835,7 +3691,7 @@ static void uci_mode(FILE * fd) {
         fprintf(fd, "> %s\n", buffer);
         fflush(fd);
 
-        if (feof(fd) || ferror(fd) || strcmp(buffer, "quit") == 0) {
+        if (strcmp(buffer, "quit") == 0) {
             break;
         }
         if (buffer[0] == '#') {
@@ -3938,19 +3794,16 @@ static void uci_mode(FILE * fd) {
             set_search_limits(buffer);
 
             int played = ai_play(&play);
-            if (played == CHECK_MATE) {
-                fprintf(fd, "# Player lost.\n");
+            if (played == CHECK_MATE || played == DRAW) {
+                fprintf(fd, played == CHECK_MATE ? "# Player lost.\n" : "# Game is drawn.\n");
                 fflush(fd);
+
                 if (extend_uci) {
-                    send_uci_command(fd, "loss");
-                }
-                continue;
-            }
-            if (played == DRAW) {
-                fprintf(fd, "# Game is drawn.\n");
-                fflush(fd);
-                if (extend_uci) {
-                    send_uci_command(fd, "draw");
+                    send_uci_command(fd, played == CHECK_MATE ? "loss" : "draw");
+                } else {
+                    // There is no play to make, but go is still owed an answer, and this is
+                    // what the protocol says when there is none.
+                    send_uci_command(fd, "bestmove 0000");
                 }
                 continue;
             }
@@ -3970,7 +3823,9 @@ static void uci_mode(FILE * fd) {
         }
     }
 
-    fclose(fd);
+    if (fd != stderr) {
+        fclose(fd);
+    }
 }
 
 static void show_help() {
@@ -3999,6 +3854,10 @@ int main(int argc, char * argv[]) {
     populate_king_moves_masks();
     populate_zobrist_masks();
     hash_table = calloc(HASH_TABLE_SIZE, sizeof(hash_table_entry_t));
+    if (hash_table == NULL) {
+        fprintf(stderr, "Could not allocate the %zu MB transposition table.\n", ((size_t)HASH_TABLE_SIZE * sizeof(hash_table_entry_t)) / (1024 * 1024));
+        return EXIT_FAILURE;
+    }
 
     int from_fen_idx = -1;
     char mode = 'u';

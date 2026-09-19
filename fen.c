@@ -57,23 +57,18 @@ void fen_to_board(board_t * board, board_ext_t * board_ext, const char * fen_str
     board->black_left_castling = 0;
     board->black_right_castling = 0;
 
-    if (fen_str[fen_str_i] == 'K') {
-        board->white_right_castling = 1;
+    while (fen_str[fen_str_i] != ' ' && fen_str[fen_str_i] != 0) {
+        switch (fen_str[fen_str_i]) {
+            case 'K': board->white_right_castling = 1; break;
+            case 'Q': board->white_left_castling = 1;  break;
+            case 'k': board->black_right_castling = 1; break;
+            case 'q': board->black_left_castling = 1;  break;
+        }
+
         fen_str_i++;
-    }
-    if (fen_str[fen_str_i] == 'Q') {
-        board->white_left_castling = 1;
-        fen_str_i++;
-    }
-    if (fen_str[fen_str_i] == 'k') {
-        board->black_right_castling = 1;
-        fen_str_i++;
-    }
-    if (fen_str[fen_str_i] == 'q') {
-        board->black_left_castling = 1;
     }
 
-    fen_str_i += 2;
+    fen_str_i++;
 
     if (fen_str[fen_str_i] == '-') {
         board->en_passant_x = NO_EN_PASSANT;
@@ -96,6 +91,10 @@ void fen_to_board(board_t * board, board_ext_t * board_ext, const char * fen_str
         board_ext->fullmoves = board_ext->fullmoves * 10 + (fen_str[fen_str_i] - '0');
         fen_str_i++;
     }
+
+    board_ext->past_plays_count = 0;
+    board_ext->last_play_x = -1;
+    board_ext->last_play_y = -1;
 }
 
 void board_to_fen(char * fen_str, const board_t * board, const board_ext_t * board_ext) {

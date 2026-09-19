@@ -1,9 +1,11 @@
 CC = gcc
 CFLAGS = -std=c99 -O2 -Wall -Wextra -Wformat=2 -Wfatal-errors -Wundef -Wno-unused-result -fno-stack-protector -march=native
 
-all: prawn bait
+.PHONY: all debug test clean
 
-prawn: *.c
+all: prawn bait perft
+
+prawn: *.c common.h
 	$(CC) $(CFLAGS) *.c -o prawn
 
 bait: bait-src/main.c
@@ -12,8 +14,14 @@ bait: bait-src/main.c
 zobrist-gen: zobrist-src/main.c common.h
 	$(CC) $(CFLAGS) zobrist-src/main.c -o zobrist-gen
 
-debug: *.c
+perft: perft-src/main.c prawn.c fen.c common.h
+	$(CC) $(CFLAGS) perft-src/main.c fen.c -o perft
+
+test: perft
+	./perft
+
+debug: *.c common.h
 	$(CC) -g -O0 $(CFLAGS) *.c -o prawn-debug
 
 clean:
-	rm -rf prawn prawn-debug bait zobrist-gen *.log prawn-*.dSYM
+	rm -rf prawn prawn-debug bait perft zobrist-gen *.log prawn-*.dSYM
