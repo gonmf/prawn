@@ -1346,13 +1346,19 @@ static void actual_play(board_t * board, board_ext_t * board_ext, const play_t *
     }
 }
 
-static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_t * board) {
+static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_t * board, int captures_only) {
     int valid_plays_i = 0;
 
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
     uint64_t empty_mask = ~(white_mask | black_mask);
+    uint64_t destination_mask = captures_only ? black_mask : (empty_mask | black_mask);
     uint64_t moves = (board->white_pawns >> 8) & empty_mask;
+
+    // A push to the last rank is worth as much as a capture, don't filter
+    if (captures_only) {
+        moves &= 0x00000000000000FFULL;
+    }
 
     // Pawn single move forward and promotion
     while (moves) {
@@ -1402,8 +1408,11 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
     }
 
     // Pawn double move forward
-    uint64_t single = (board->white_pawns >> 8) & empty_mask;
-    moves = ((single >> 8) & empty_mask) & 0x000000FF00000000ULL;
+    moves = 0ULL;
+    if (!captures_only) {
+        uint64_t single = (board->white_pawns >> 8) & empty_mask;
+        moves = ((single >> 8) & empty_mask) & 0x000000FF00000000ULL;
+    }
 
     while (moves) {
         int to = __builtin_ctzll(moves);
@@ -1505,7 +1514,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        uint64_t moves_to = knight_moves_masks[from] & (empty_mask | black_mask);
+        uint64_t moves_to = knight_moves_masks[from] & destination_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
             int to_x = to % 8;
@@ -1531,7 +1540,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        uint64_t moves_to = king_moves_masks[from] & (empty_mask | black_mask);
+        uint64_t moves_to = king_moves_masks[from] & destination_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
             int to_x = to % 8;
@@ -1551,7 +1560,7 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
     }
 
     // King castling
-    if (board->white_kings & (1ULL << (7 * 8 + 4))) {
+    if (!captures_only && (board->white_kings & (1ULL << (7 * 8 + 4)))) {
         if (board->white_left_castling && (empty_mask & (1ULL << (7 * 8 + 1))) && (empty_mask & (1ULL << (7 * 8 + 2))) && (empty_mask & (1ULL << (7 * 8 + 3)))) {
             valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = 4;
@@ -1586,12 +1595,14 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = from_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & black_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = from_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & black_mask) {
                 break;
@@ -1609,12 +1620,14 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = from_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & black_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = from_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & black_mask) {
                 break;
@@ -1632,12 +1645,14 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = from_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & black_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = from_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & black_mask) {
                 break;
@@ -1655,12 +1670,14 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = from_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & black_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = from_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & black_mask) {
                 break;
@@ -1694,12 +1711,14 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
                     break;
                 }
 
-                valid_plays[valid_plays_i].promotion_option = 0;
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = x;
-                valid_plays[valid_plays_i].to_y = y;
-                valid_plays_i++;
+                if (!captures_only || (to_mask & black_mask)) {
+                    valid_plays[valid_plays_i].promotion_option = 0;
+                    valid_plays[valid_plays_i].from_x = from_x;
+                    valid_plays[valid_plays_i].from_y = from_y;
+                    valid_plays[valid_plays_i].to_x = x;
+                    valid_plays[valid_plays_i].to_y = y;
+                    valid_plays_i++;
+                }
 
                 if (to_mask & black_mask) {
                     break;
@@ -1716,13 +1735,19 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
     return valid_plays_i;
 }
 
-static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_t * board) {
+static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_t * board, int captures_only) {
     int valid_plays_i = 0;
 
     uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
     uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
     uint64_t empty_mask = ~(white_mask | black_mask);
+    uint64_t destination_mask = captures_only ? white_mask : (empty_mask | white_mask);
     uint64_t moves = (board->black_pawns << 8) & empty_mask;
+
+    // A push to the last rank is worth as much as a capture, don't filter
+    if (captures_only) {
+        moves &= 0xFF00000000000000ULL;
+    }
 
     // Pawn single move forward and promotion
     while (moves) {
@@ -1772,8 +1797,11 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
     }
 
     // Pawn double move forward
-    uint64_t single = (board->black_pawns << 8) & empty_mask;
-    moves = ((single << 8) & empty_mask) & 0x00000000FF000000ULL;
+    moves = 0ULL;
+    if (!captures_only) {
+        uint64_t single = (board->black_pawns << 8) & empty_mask;
+        moves = ((single << 8) & empty_mask) & 0x00000000FF000000ULL;
+    }
 
     while (moves) {
         int to = __builtin_ctzll(moves);
@@ -1875,7 +1903,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        uint64_t moves_to = knight_moves_masks[from] & (empty_mask | white_mask);
+        uint64_t moves_to = knight_moves_masks[from] & destination_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
             int to_x = to % 8;
@@ -1901,7 +1929,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
         int from_x = from % 8;
         int from_y = from / 8;
 
-        uint64_t moves_to = king_moves_masks[from] & (empty_mask | white_mask);
+        uint64_t moves_to = king_moves_masks[from] & destination_mask;
         while (moves_to) {
             int to = __builtin_ctzll(moves_to);
             int to_x = to % 8;
@@ -1921,7 +1949,7 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
     }
 
     // King castling
-    if (board->black_kings & (1ULL << (0 * 8 + 4))) {
+    if (!captures_only && (board->black_kings & (1ULL << (0 * 8 + 4)))) {
         if (board->black_left_castling && (empty_mask & (1ULL << (0 * 8 + 1))) && (empty_mask & (1ULL << (0 * 8 + 2))) && (empty_mask & (1ULL << (0 * 8 + 3)))) {
             valid_plays[valid_plays_i].promotion_option = 0;
             valid_plays[valid_plays_i].from_x = 4;
@@ -1956,12 +1984,14 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = from_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & white_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = from_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & white_mask) {
                 break;
@@ -1979,12 +2009,14 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = to_x;
-            valid_plays[valid_plays_i].to_y = from_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & white_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = to_x;
+                valid_plays[valid_plays_i].to_y = from_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & white_mask) {
                 break;
@@ -2002,12 +2034,14 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = from_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & white_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = from_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & white_mask) {
                 break;
@@ -2025,12 +2059,14 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                 break;
             }
 
-            valid_plays[valid_plays_i].promotion_option = 0;
-            valid_plays[valid_plays_i].from_x = from_x;
-            valid_plays[valid_plays_i].from_y = from_y;
-            valid_plays[valid_plays_i].to_x = from_x;
-            valid_plays[valid_plays_i].to_y = to_y;
-            valid_plays_i++;
+            if (!captures_only || (to_mask & white_mask)) {
+                valid_plays[valid_plays_i].promotion_option = 0;
+                valid_plays[valid_plays_i].from_x = from_x;
+                valid_plays[valid_plays_i].from_y = from_y;
+                valid_plays[valid_plays_i].to_x = from_x;
+                valid_plays[valid_plays_i].to_y = to_y;
+                valid_plays_i++;
+            }
 
             if (to_mask & white_mask) {
                 break;
@@ -2064,12 +2100,14 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
                     break;
                 }
 
-                valid_plays[valid_plays_i].promotion_option = 0;
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = x;
-                valid_plays[valid_plays_i].to_y = y;
-                valid_plays_i++;
+                if (!captures_only || (to_mask & white_mask)) {
+                    valid_plays[valid_plays_i].promotion_option = 0;
+                    valid_plays[valid_plays_i].from_x = from_x;
+                    valid_plays[valid_plays_i].from_y = from_y;
+                    valid_plays[valid_plays_i].to_x = x;
+                    valid_plays[valid_plays_i].to_y = y;
+                    valid_plays_i++;
+                }
 
                 if (to_mask & white_mask) {
                     break;
@@ -2214,10 +2252,9 @@ static uint64_t compute_pins(const board_t * board, int king_p, int own_is_white
     return pinned;
 }
 
-static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * board) {
+static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * board, int captures_only, int * out_in_check) {
     int valid_plays_i = 0;
     play_t valid_plays_local[218];
-    int valid_plays_local_i = enumerate_all_possible_plays_white(valid_plays_local, board);
     board_t board_cpy;
 
     int king_on_start = (board->white_kings & (1ULL << (7 * 8 + 4))) != 0ULL;
@@ -2233,6 +2270,17 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
             pinned = compute_pins(board, king_p, 1, pin_ray);
         }
     }
+
+    if (out_in_check != NULL) {
+        *out_in_check = in_check;
+    }
+
+    // No evasion is optional, so being in check overrides a request for captures alone
+    if (in_check) {
+        captures_only = 0;
+    }
+
+    int valid_plays_local_i = enumerate_all_possible_plays_white(valid_plays_local, board, captures_only);
 
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
@@ -2281,10 +2329,9 @@ static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * boa
     return valid_plays_i;
 }
 
-static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * board) {
+static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * board, int captures_only, int * out_in_check) {
     int valid_plays_i = 0;
     play_t valid_plays_local[218];
-    int valid_plays_local_i = enumerate_all_possible_plays_black(valid_plays_local, board);
     board_t board_cpy;
 
     int king_on_start = (board->black_kings & (1ULL << (0 * 8 + 4))) != 0ULL;
@@ -2300,6 +2347,17 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
             pinned = compute_pins(board, king_p, 0, pin_ray);
         }
     }
+
+    if (out_in_check != NULL) {
+        *out_in_check = in_check;
+    }
+
+    // No evasion is optional, so being in check overrides a request for captures alone
+    if (in_check) {
+        captures_only = 0;
+    }
+
+    int valid_plays_local_i = enumerate_all_possible_plays_black(valid_plays_local, board, captures_only);
 
     // Detect if playing exposes king to immediate capture (illegal move)
     for (int i = 0; i < valid_plays_local_i; ++i) {
@@ -2350,9 +2408,9 @@ static int enumerate_legal_plays_black(play_t * valid_plays, const board_t * boa
 
 static int enumerate_legal_plays(play_t * valid_plays, const board_t * board) {
     if (board->color == WHITE_COLOR) {
-        return enumerate_legal_plays_white(valid_plays, board);
+        return enumerate_legal_plays_white(valid_plays, board, 0, NULL);
     } else {
-        return enumerate_legal_plays_black(valid_plays, board);
+        return enumerate_legal_plays_black(valid_plays, board, 0, NULL);
     }
 }
 
@@ -2605,11 +2663,13 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     // For why 218, see https://lichess.org/@/Tobs40/blog/why-a-position-cant-have-more-than-218-moves/a5xdxeqs
     play_t valid_plays[218];
 
-    int valid_plays_i = enumerate_legal_plays_white(valid_plays, board);
-    int in_check = king_threatened_white(board);
+    int in_check;
+    int valid_plays_i = enumerate_legal_plays_white(valid_plays, board, 1, &in_check);
 
-    if (valid_plays_i == 0) {
-        int score = in_check ? -MATE_SCORE + depth * 128 : DRAW_SCORE;
+    // Only a list holding every evasion can tell a mate from a quiet position. Without check
+    // this one holds captures alone, and having none of them means nothing to take, not stalemate.
+    if (in_check && valid_plays_i == 0) {
+        int score = -MATE_SCORE + depth * 128;
 
         // A finished game is worth the same however many plies were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
@@ -2617,8 +2677,8 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         return score;
     }
 
-    // The play that came out best the last time this position was searched goes first. If it is a
-    // quiet play and this node is not in check, the capture filter in the loop below drops it again.
+    // The play that came out best the last time this position was searched goes first. A quiet
+    // one is simply not in this list unless the node is in check, and is then not looked for.
     if (tt_play != 0) {
         for (int i = 0; i < valid_plays_i; ++i) {
             if (pack_play(&valid_plays[i]) == tt_play) {
@@ -2647,10 +2707,6 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     }
 
     for (int i = 0; i < valid_plays_i; ++i) {
-        if (!in_check && identify_piece_black(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) == ' ') {
-            continue;
-        }
-
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
@@ -2740,11 +2796,13 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
     board_t board_cpy;
     play_t valid_plays[218];
 
-    int valid_plays_i = enumerate_legal_plays_black(valid_plays, board);
-    int in_check = king_threatened_black(board);
+    int in_check;
+    int valid_plays_i = enumerate_legal_plays_black(valid_plays, board, 1, &in_check);
 
-    if (valid_plays_i == 0) {
-        int score = in_check ? MATE_SCORE - depth * 128 : DRAW_SCORE;
+    // Only a list holding every evasion can tell a mate from a quiet position. Without check
+    // this one holds captures alone, and having none of them means nothing to take, not stalemate.
+    if (in_check && valid_plays_i == 0) {
+        int score = MATE_SCORE - depth * 128;
 
         // A finished game is worth the same however many plies were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
@@ -2752,8 +2810,8 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         return score;
     }
 
-    // The play that came out best the last time this position was searched goes first. If it is a
-    // quiet play and this node is not in check, the capture filter in the loop below drops it again.
+    // The play that came out best the last time this position was searched goes first. A quiet
+    // one is simply not in this list unless the node is in check, and is then not looked for.
     if (tt_play != 0) {
         for (int i = 0; i < valid_plays_i; ++i) {
             if (pack_play(&valid_plays[i]) == tt_play) {
@@ -2782,10 +2840,6 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
     }
 
     for (int i = 0; i < valid_plays_i; ++i) {
-        if (!in_check && identify_piece_white(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x) == ' ') {
-            continue;
-        }
-
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
@@ -2878,9 +2932,10 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     play_t valid_plays[218];
     char captures[218];
 
-    int valid_plays_i = enumerate_legal_plays_white(valid_plays, board);
+    int in_check;
+    int valid_plays_i = enumerate_legal_plays_white(valid_plays, board, 0, &in_check);
     if (valid_plays_i == 0) {
-        int score = king_threatened_white(board) ? -MATE_SCORE + depth * 128 : DRAW_SCORE;
+        int score = in_check ? -MATE_SCORE + depth * 128 : DRAW_SCORE;
 
         // A finished game is worth the same however many plies were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
@@ -3048,9 +3103,10 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
     play_t valid_plays[218];
     char captures[218];
 
-    int valid_plays_i = enumerate_legal_plays_black(valid_plays, board);
+    int in_check;
+    int valid_plays_i = enumerate_legal_plays_black(valid_plays, board, 0, &in_check);
     if (valid_plays_i == 0) {
-        int score = king_threatened_black(board) ? MATE_SCORE - depth * 128 : DRAW_SCORE;
+        int score = in_check ? MATE_SCORE - depth * 128 : DRAW_SCORE;
 
         // A finished game is worth the same however many plies were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
