@@ -393,6 +393,12 @@ static int score_from_hash(int score, int depth) {
 // earlier moves stay usable but are the first to be thrown out when room is needed.
 static uint8_t hash_table_age = 0;
 
+// The bucket a position belongs to: its index with the low bits cleared, so the four entries
+// read from it are one aligned cache line.
+static int hash_table_bucket(int64_t hash) {
+    return (int)(hash & (HASH_TABLE_SIZE - 1)) & ~(HASH_TABLE_BUCKET - 1);
+}
+
 static void hash_table_reset() {
     if (hash_table != NULL) {
         bzero(hash_table, HASH_TABLE_SIZE * sizeof(hash_table_entry_t));
@@ -404,10 +410,10 @@ static void hash_table_reset() {
 // A hit is marked as belonging to the current search, so that a position still being visited is not
 // evicted by the positions around it.
 static hash_table_entry_t * hash_table_find(int64_t hash) {
-    int start_key = hash & (HASH_TABLE_SIZE - 1);
+    hash_table_entry_t * bucket = &hash_table[hash_table_bucket(hash)];
 
-    for (int i = 0; i < 5; ++i) {
-        hash_table_entry_t * entry = &hash_table[(start_key + i) & (HASH_TABLE_SIZE - 1)];
+    for (int i = 0; i < HASH_TABLE_BUCKET; ++i) {
+        hash_table_entry_t * entry = &bucket[i];
 
         if ((entry->score_w_type & 3) != 0 && entry->hash == hash) {
             entry->age = hash_table_age;
@@ -422,13 +428,13 @@ static hash_table_entry_t * hash_table_find(int64_t hash) {
 // work than a shallow one, less a large penalty for belonging to an earlier search -- an entry the
 // current search has not touched is nearly always the one worth losing.
 static void hash_table_insert(int64_t hash, int score_w_type, int draft, int16_t best_play) {
-    int start_key = hash & (HASH_TABLE_SIZE - 1);
+    hash_table_entry_t * bucket = &hash_table[hash_table_bucket(hash)];
 
     hash_table_entry_t * victim = 0;
     int victim_value = 0;
 
-    for (int i = 0; i < 5; ++i) {
-        hash_table_entry_t * entry = &hash_table[(start_key + i) & (HASH_TABLE_SIZE - 1)];
+    for (int i = 0; i < HASH_TABLE_BUCKET; ++i) {
+        hash_table_entry_t * entry = &bucket[i];
 
         if ((entry->score_w_type & 3) == 0) {
             victim = entry;
@@ -3909,11 +3915,15 @@ int main(int argc, char * argv[]) {
     populate_knight_moves_masks();
     populate_king_moves_masks();
     populate_zobrist_masks();
-    hash_table = calloc(HASH_TABLE_SIZE, sizeof(hash_table_entry_t));
+    if (posix_memalign((void **)&hash_table, 64, (size_t)HASH_TABLE_SIZE * sizeof(hash_table_entry_t)) != 0) {
+        hash_table = NULL;
+    }
     if (hash_table == NULL) {
         fprintf(stderr, "Could not allocate the %zu MB transposition table.\n", ((size_t)HASH_TABLE_SIZE * sizeof(hash_table_entry_t)) / (1024 * 1024));
         return EXIT_FAILURE;
     }
+
+    hash_table_reset();
 
     int from_fen_idx = -1;
     char mode = 'u';
