@@ -4,22 +4,38 @@
 #include <unistd.h>
 #include <string.h>
 
-static void read_line(char * dest, int fd) {
-    int r = 0;
+typedef struct {
+    int fd;
+    char data[4096];
+    int len;
+} line_reader_t;
+
+static void read_line(line_reader_t * reader, char * dest) {
     while (1) {
-        int ir = read(fd, dest + r, 1024 - r);
-        if (ir == -1) {
+        for (int i = 0; i < reader->len; ++i) {
+            if (reader->data[i] == '\n') {
+                memcpy(dest, reader->data, i + 1);
+                dest[i + 1] = 0;
+                memmove(reader->data, reader->data + i + 1, reader->len - i - 1);
+                reader->len -= i + 1;
+                return;
+            }
+        }
+
+        int ir = read(reader->fd, reader->data + reader->len, sizeof(reader->data) - reader->len);
+        if (ir <= 0) {
             fprintf(stderr, "error\n");
             exit(EXIT_FAILURE);
         }
 
-        r += ir;
-
-        if (dest[r - 1] == '\n') {
-            dest[r] = 0;
-            return;
-        }
+        reader->len += ir;
     }
+}
+
+static void read_reply(line_reader_t * reader, char * dest) {
+    do {
+        read_line(reader, dest);
+    } while (strncmp(dest, "info ", strlen("info ")) == 0);
 }
 
 static void write_line(int fd, const char * s) {
@@ -80,6 +96,11 @@ int main(int argc, char * argv[]) {
     char buffer[1024];
     char buffer2[1024];
 
+    line_reader_t prog1_reader;
+    line_reader_t prog2_reader;
+    prog1_reader.len = 0;
+    prog2_reader.len = 0;
+
     int prog1_inPipe[2], prog1_outPipe[2];
     if (pipe(prog1_inPipe) == -1 || pipe(prog1_outPipe) == -1) {
         perror("pipe");
@@ -127,6 +148,9 @@ int main(int argc, char * argv[]) {
     close(prog2_inPipe[0]);
     close(prog2_outPipe[1]);
 
+    prog1_reader.fd = prog1_outPipe[0];
+    prog2_reader.fd = prog2_outPipe[0];
+
     int player1_wins = 0;
     int total_draws = 0;
     int white_wins = 0;
@@ -169,7 +193,7 @@ int main(int argc, char * argv[]) {
             if (turn > 1 || white_is_player_1) {
                 write_line(prog1_inPipe[1], "go\n");
 
-                read_line(buffer, prog1_outPipe[0]);
+                read_reply(&prog1_reader, buffer);
 
                 if (strcmp(buffer, "error\n") == 0) {
                     total_error++;
@@ -197,7 +221,7 @@ int main(int argc, char * argv[]) {
 
             write_line(prog2_inPipe[1], "go\n");
 
-            read_line(buffer, prog2_outPipe[0]);
+            read_reply(&prog2_reader, buffer);
 
             if (strcmp(buffer, "error\n") == 0) {
                 total_error++;

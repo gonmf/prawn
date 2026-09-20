@@ -95,10 +95,43 @@ static int uci_game_in_error_state = 0;
 static int convert_at_ob_depth = -1;
 
 static void reset_board();
+static void send_uci_command(FILE * fd, const char * str);
 static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play);
 static int64_t hash_from_board(const board_t * board);
 static int enumerate_legal_plays(play_t * valid_plays, const board_t * board);
 static int insufficient_material(const board_t * board);
+
+static char program_dir[1024];
+
+static void set_program_dir(const char * program_name) {
+    const char * slash = strrchr(program_name, '/');
+    if (slash == NULL) {
+        program_dir[0] = 0;
+        return;
+    }
+
+    size_t len = (size_t)(slash - program_name) + 1;
+    if (len >= sizeof(program_dir)) {
+        len = sizeof(program_dir) - 1;
+    }
+
+    memcpy(program_dir, program_name, len);
+    program_dir[len] = 0;
+}
+
+static FILE * open_data_file(const char * name, const char * mode) {
+    if (program_dir[0] != 0) {
+        char path[2048];
+        snprintf(path, sizeof(path), "%s%s", program_dir, name);
+
+        FILE * fp = fopen(path, mode);
+        if (fp != NULL) {
+            return fp;
+        }
+    }
+
+    return fopen(name, mode);
+}
 
 static void init_opening_book() {
     opening_book_size = 0;
@@ -111,7 +144,7 @@ static void init_opening_book() {
     int file_row = 0;
 
     play.promotion_option = 0;
-    FILE * fp = fopen("openings.txt", "r");
+    FILE * fp = open_data_file("openings.txt", "r");
     if (fp == NULL) {
         if (convert_at_ob_depth != -1) {
             fprintf(stderr, "Opening book openings.txt not found.\n");
@@ -479,7 +512,7 @@ static void hash_table_insert(int64_t hash, int score_w_type, int draft, int16_t
 static void populate_zobrist_masks() {
     int nItems = 64 * 12 + 1 + 8 + 4;
     sprintf(buffer, "zobrist_%d.bin", nItems);
-    FILE * s = fopen(buffer, "rb");
+    FILE * s = open_data_file(buffer, "rb");
     if (s == NULL) {
         fprintf(stderr, "Zobrist file with %d entries not found.\n", nItems);
         exit(EXIT_FAILURE);
@@ -3279,6 +3312,51 @@ static int is_game_drawn() {
     return seen >= 2;
 }
 
+static FILE * uci_log = NULL;
+
+static int format_play_uci(char * dest, const play_t * play) {
+    int i = sprintf(dest, "%c%d%c%d", 'a' + play->from_x, 8 - play->from_y, 'a' + play->to_x, 8 - play->to_y);
+
+    switch (play->promotion_option) {
+        case PROMOTION_QUEEN:  dest[i++] = 'q'; break;
+        case PROMOTION_KNIGHT: dest[i++] = 'n'; break;
+        case PROMOTION_BISHOP: dest[i++] = 'b'; break;
+        case PROMOTION_ROOK:   dest[i++] = 'r'; break;
+    }
+
+    dest[i] = 0;
+    return i;
+}
+
+static void send_search_info(int depth, int score, const play_t * play) {
+    if (uci_log == NULL) {
+        return;
+    }
+
+    int value = board.color == WHITE_COLOR ? score : -score;
+    char score_str[32];
+
+    if (value > MATE_THRESHOLD || value < -MATE_THRESHOLD) {
+        int plies = (MATE_SCORE - (value > 0 ? value : -value)) / 128 + 1;
+        int moves = (plies + 1) / 2;
+        sprintf(score_str, "mate %d", value > 0 ? moves : -moves);
+    } else {
+        sprintf(score_str, "cp %d", value);
+    }
+
+    char play_str[8];
+    format_play_uci(play_str, play);
+
+    long elapsed = search_elapsed_ms();
+    unsigned long long nps = elapsed > 0 ? (search_nodes * 1000ULL) / (unsigned long long)elapsed : 0ULL;
+
+    char line[256];
+    sprintf(line, "info depth %d score %s nodes %llu nps %llu time %ld pv %s",
+        depth, score_str, (unsigned long long)search_nodes, nps, elapsed, play_str);
+
+    send_uci_command(uci_log, line);
+}
+
 static int ai_play(play_t * play) {
     if (opening_book_enabled) {
         uint64_t board_hash = hash_from_board(&board);
@@ -3382,6 +3460,8 @@ static int ai_play(play_t * play) {
             valid_plays[0] = valid_plays[iter_play];
             valid_plays[iter_play] = tmp_play;
         }
+
+        send_search_info(max_depth, best_score, &valid_plays[0]);
 
         if (best_score >= MATE_THRESHOLD || best_score <= -MATE_THRESHOLD) {
             break;
@@ -3584,7 +3664,7 @@ static void reset_board() {
     board.black_right_castling = 1;
     board.color = WHITE_COLOR;
     board.halfmoves = 0;
-    board_ext.fullmoves = 0;
+    board_ext.fullmoves = 1;
     board_ext.past_plays_count = 0;
     board_ext.last_play_x = -1;
 }
@@ -3737,6 +3817,8 @@ static void uci_mode(FILE * fd) {
     fprintf(fd, "# Starting in UCI mode.\n");
     fflush(fd);
 
+    uci_log = fd;
+
     arbitrate_draws = extend_uci;
 
     while (1) {
@@ -3772,16 +3854,13 @@ static void uci_mode(FILE * fd) {
         }
         if (strcmp(buffer, "ucinewgame") == 0) {
             reset_board();
-            // The only point at which what the table holds stops being about this game. A
-            // "position" command is not one: it names a position in the same game, and the entries
-            // from the searches that led to it are exactly the ones worth keeping.
             hash_table_reset();
             uci_game_in_error_state = 0;
             continue;
         }
         if (strncmp(buffer, "position ", strlen("position ")) == 0) {
-            char * str = strstr(buffer, " startpos ");
-            if (str) {
+            char * str = strstr(buffer, " startpos");
+            if (str != NULL && (str[9] == 0 || str[9] == ' ')) {
                 reset_board();
                 uci_game_in_error_state = 0;
             } else {
@@ -3870,16 +3949,9 @@ static void uci_mode(FILE * fd) {
                 continue;
             }
 
-            char * b = buffer + sprintf(buffer, "bestmove %c%d%c%d", 'a' + play.from_x, 8 - play.from_y, 'a' + play.to_x, 8 - play.to_y);
-            if (play.promotion_option == PROMOTION_QUEEN) {
-                sprintf(b, "q");
-            } else if (play.promotion_option == PROMOTION_KNIGHT) {
-                sprintf(b, "n");
-            } else if (play.promotion_option == PROMOTION_BISHOP) {
-                sprintf(b, "b");
-            } else if (play.promotion_option == PROMOTION_ROOK) {
-                sprintf(b, "r");
-            }
+            char play_str[8];
+            format_play_uci(play_str, &play);
+            sprintf(buffer, "bestmove %s", play_str);
             send_uci_command(fd, buffer);
             continue;
         }
@@ -3910,6 +3982,7 @@ static void init_randomness() {
 }
 
 int main(int argc, char * argv[]) {
+    set_program_dir(argv[0]);
     init_randomness();
     populate_pawn_capture_masks();
     populate_knight_moves_masks();
