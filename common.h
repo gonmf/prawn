@@ -10,7 +10,7 @@
 #include <unistd.h>
 #include <sys/time.h>
 
-#define PROGRAM_VERSION "1.0"
+#define PROGRAM_VERSION "1.1"
 
 typedef struct {
     uint64_t white_pawns;
