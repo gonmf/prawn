@@ -1,7 +1,7 @@
 /*
 Move generator test for prawn.
 
-perft(N) counts the leaves of the legal move tree N plies deep. The counts for a
+perft(N) counts the leaves of the legal move tree N plays deep. The counts for a
 handful of standard positions are published and exact, so a single mismatch means
 the generator is inventing a move, missing one, or getting legality wrong
 somewhere in that tree. It is a better test than playing games: a bug that shows
@@ -36,7 +36,6 @@ static uint64_t perft(const board_t * board, int depth) {
     play_t valid_plays[218];
     int valid_plays_i = enumerate_legal_plays(valid_plays, board);
 
-    // At one ply from the bottom the move count is the answer
     if (depth <= 1) {
         return (uint64_t)valid_plays_i;
     }

@@ -183,7 +183,7 @@ int main(int argc, char * argv[]) {
         int turn = 0;
         char * move;
 
-        while (turn < 256) {
+        while (turn < 256) { // MAX_GAME_PLAYS / 2
             turn++;
             printf("\rTurn %d...", turn);
             fflush(stdout);

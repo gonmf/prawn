@@ -9,9 +9,8 @@ static board_ext_t board_ext;
 #define CHECK_MATE -536870911
 #define DRAW 536870911
 
-// A checkmate is worth MATE_SCORE less 128 for every ply it takes to reach, so that the search
-// prefers the shortest one. Nothing the evaluation can produce comes near MATE_THRESHOLD, which
-// makes it the test for "this score is a mate, not a material count".
+// A checkmate is worth MATE_SCORE less 128 for every play it takes to reach, so that the search
+// prefers the shortest one. No material evaluation comes close.
 #define MATE_SCORE 20000000
 #define MATE_THRESHOLD (MATE_SCORE - 128 * (MAX_TOTAL_SEARCH_DEPTH + 1))
 
@@ -37,7 +36,6 @@ static long search_budget_ms;
 static int search_depth_limit = DEFAULT_SEARCH_DEPTH;
 static int search_aborted;
 static uint64_t search_nodes;
-// Prevent stopping when running out of time in the first search iteration (of increasing depth).
 static int search_abortable;
 
 static long elapsed_ms(struct timeval start, struct timeval end) {
@@ -51,14 +49,12 @@ static long search_elapsed_ms() {
     return elapsed_ms(search_start, now);
 }
 
-// Hashes of the positions the game has already been through, followed by the ones on the path to
-// the node being searched. search_history_count is where the second part starts.
-static int64_t search_history[256 + MAX_TOTAL_SEARCH_DEPTH + 4];
+static int64_t search_history[MAX_GAME_PLAYS + MAX_TOTAL_SEARCH_DEPTH + 4];
 static int search_history_count;
 
 // A position already seen is scored as a draw on its first repetition rather than its third: a side
-// able to repeat once can nearly always repeat again, and waiting for the third costs plies to see.
-// Only positions since the last pawn play or capture can repeat, which is what bounds the search.
+// able to repeat once can nearly always repeat again, and waiting for the third costs time to see.
+// Only positions since the last pawn play or capture can repeat, which bounds the search.
 static int is_repetition(int64_t hash, int depth, int halfmoves) {
     int limit = search_history_count + depth - halfmoves;
     if (limit < 0) {
@@ -380,7 +376,6 @@ static void populate_king_moves_masks() {
 
 // A hash table value is a score in the upper 30 bits and a TYPE_* tag in the lower 2. Scores must
 // therefore fit in 30 bits signed; the largest magnitude ever stored is a mate score, ~20000000.
-// The shift is done through uint32_t because shifting a negative int left is undefined in C99.
 static int pack_score(int score, int type) {
     return (int)(((uint32_t)score << 2) | (uint32_t)type);
 }
@@ -389,8 +384,8 @@ static int unpack_score(int score_w_type) {
     return score_w_type >> 2;
 }
 
-// A play packed into 16 bits: origin square and destination square in 6 bits each and the promotion
-// choice in 4. No legal play stays on its own square, so zero is free to mean "no play recorded".
+// A play packed into 16 bits: origin square and destination square in 6 bits each, promotion in 4.
+//  No legal play stays on its own square, so zero means "no play".
 static int16_t pack_play(const play_t * play) {
     int from_p = play->from_y * 8 + play->from_x;
     int to_p = play->to_y * 8 + play->to_x;
@@ -398,10 +393,7 @@ static int16_t pack_play(const play_t * play) {
     return (int16_t)(from_p | (to_p << 6) | (((int)play->promotion_option) << 12));
 }
 
-// Mate scores count plies from the root, so one and the same mate is worth a different amount at
-// every depth it is seen from. Entries are stored counting from their own node instead, and shifted
-// back to the reading node's depth on the way out, so that an entry written at one ply still names
-// the right distance to mate when it is found again at another.
+// Mate scores include play counts from the root
 static int score_to_hash(int score, int depth) {
     if (score > MATE_THRESHOLD) {
         return score + depth * 128;
@@ -422,12 +414,9 @@ static int score_from_hash(int score, int depth) {
     return score;
 }
 
-// The search this table is being used for. Bumped once per move played, so that entries from
-// earlier moves stay usable but are the first to be thrown out when room is needed.
 static uint8_t hash_table_age = 0;
 
-// The bucket a position belongs to: its index with the low bits cleared, so the four entries
-// read from it are one aligned cache line.
+// cache aligned
 static int hash_table_bucket(int64_t hash) {
     return (int)(hash & (HASH_TABLE_SIZE - 1)) & ~(HASH_TABLE_BUCKET - 1);
 }
@@ -456,10 +445,6 @@ static hash_table_entry_t * hash_table_find(int64_t hash) {
     return 0;
 }
 
-// Which of the five slots a new entry takes: one already holding this position, else an empty one,
-// else the least valuable of the five. Value is the draft, since a deep entry stands for far more
-// work than a shallow one, less a large penalty for belonging to an earlier search -- an entry the
-// current search has not touched is nearly always the one worth losing.
 static void hash_table_insert(int64_t hash, int score_w_type, int draft, int16_t best_play) {
     hash_table_entry_t * bucket = &hash_table[hash_table_bucket(hash)];
 
@@ -1361,7 +1346,7 @@ static void just_play_black_complex(board_t * board, const play_t * play, int64_
 }
 
 static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play) {
-    if (board_ext->past_plays_count < 256) {
+    if (board_ext->past_plays_count < MAX_GAME_PLAYS) {
         board_ext->past_plays[board_ext->past_plays_count].from_x = play->from_x;
         board_ext->past_plays[board_ext->past_plays_count].from_y = play->from_y;
         board_ext->past_plays[board_ext->past_plays_count].to_x = play->to_x;
@@ -2642,11 +2627,9 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
 
 // Quiescence search. Reached from the frontier of the main search, it keeps resolving captures until
 // the position is quiet, so that estimate_board_score is never taken in the middle of a trade.
-//
-// The side to move may always stand pat, i.e. stop capturing and accept the static score, since it
-// is under no obligation to enter a capture sequence; that score is the floor (for white) or the
-// ceiling (for black) of the node. The one exception is being in check, where doing nothing is not
-// legal: there every reply is searched, quiet ones included, and only the depth limit ends it.
+// The side to move may always stop capturing and accept the static score; that score is the floor (for
+// white) or the ceiling (for black) of the node. The one exception is being in check, where doing nothing
+// is not legal: there every reply is searched, quiet ones included, and only the depth limit ends it.
 static int minimax_white_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (search_aborted || out_of_time()) {
         search_aborted = 1;
@@ -2659,7 +2642,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         return DRAW_SCORE;
     }
 
-    // Quiescence nodes look at captures only, so whatever they return is worth no full ply of
+    // Quiescence nodes look at captures only, so whatever they return is worth no full play of
     // search and is stored at a draft of 0
     int draft = 0;
     int16_t tt_play = 0;
@@ -2710,7 +2693,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     if (in_check && valid_plays_i == 0) {
         int score = -MATE_SCORE + depth * 128;
 
-        // A finished game is worth the same however many plies were left to search, so this is
+        // A finished game is worth the same however many plays were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
         hash_table_insert(hash, pack_score(score_to_hash(score, depth), TYPE_EXACT), MAX_TOTAL_SEARCH_DEPTH, 0);
         return score;
@@ -2793,7 +2776,7 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         return DRAW_SCORE;
     }
 
-    // Quiescence nodes look at captures only, so whatever they return is worth no full ply of
+    // Quiescence nodes look at captures only, so whatever they return is worth no full play of
     // search and is stored at a draft of 0
     int draft = 0;
     int16_t tt_play = 0;
@@ -2843,7 +2826,7 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
     if (in_check && valid_plays_i == 0) {
         int score = MATE_SCORE - depth * 128;
 
-        // A finished game is worth the same however many plies were left to search, so this is
+        // A finished game is worth the same however many plays were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
         hash_table_insert(hash, pack_score(score_to_hash(score, depth), TYPE_EXACT), MAX_TOTAL_SEARCH_DEPTH, 0);
         return score;
@@ -2928,7 +2911,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
         return DRAW_SCORE;
     }
 
-    // How many plies this node still has to search below it, which is what its score is worth.
+    // How many plays this node still has to search below it, which is what its score is worth.
     int draft = max_depth - depth;
     int16_t tt_play = 0;
 
@@ -2976,7 +2959,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     if (valid_plays_i == 0) {
         int score = in_check ? -MATE_SCORE + depth * 128 : DRAW_SCORE;
 
-        // A finished game is worth the same however many plies were left to search, so this is
+        // A finished game is worth the same however many plays were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
         hash_table_insert(hash, pack_score(score_to_hash(score, depth), TYPE_EXACT), MAX_TOTAL_SEARCH_DEPTH, 0);
         return score;
@@ -3100,7 +3083,7 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
         return DRAW_SCORE;
     }
 
-    // How many plies this node still has to search below it, which is what its score is worth.
+    // How many plays this node still has to search below it, which is what its score is worth.
     int draft = max_depth - depth;
     int16_t tt_play = 0;
 
@@ -3147,7 +3130,7 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
     if (valid_plays_i == 0) {
         int score = in_check ? MATE_SCORE - depth * 128 : DRAW_SCORE;
 
-        // A finished game is worth the same however many plies were left to search, so this is
+        // A finished game is worth the same however many plays were left to search, so this is
         // the one result that can be stored at the greatest draft there is.
         hash_table_insert(hash, pack_score(score_to_hash(score, depth), TYPE_EXACT), MAX_TOTAL_SEARCH_DEPTH, 0);
         return score;
@@ -3337,8 +3320,8 @@ static void send_search_info(int depth, int score, const play_t * play) {
     char score_str[32];
 
     if (value > MATE_THRESHOLD || value < -MATE_THRESHOLD) {
-        int plies = (MATE_SCORE - (value > 0 ? value : -value)) / 128 + 1;
-        int moves = (plies + 1) / 2;
+        int plays = (MATE_SCORE - (value > 0 ? value : -value)) / 128 + 1;
+        int moves = (plays + 1) / 2;
         sprintf(score_str, "mate %d", value > 0 ? moves : -moves);
     } else {
         sprintf(score_str, "cp %d", value);
@@ -3481,8 +3464,6 @@ static int ai_play(play_t * play) {
     return 1;
 }
 
-// Past the end of standard input fgets returns immediately and forever, which turns every prompt
-// below into a busy loop, so a closed input ends the program instead.
 static void read_input_line() {
     if (fgets(buffer, 1024, stdin) == NULL) {
         printf("\n");
@@ -3581,7 +3562,7 @@ static int input_play(play_t * play, const play_t * valid_plays, int valid_plays
             exit(EXIT_SUCCESS);
         }
         if (strcmp(buffer, "undo\n") == 0) {
-            if (board_ext.past_plays_count >= 2 && board_ext.past_plays_count < 256) {
+            if (board_ext.past_plays_count >= 2 && board_ext.past_plays_count < MAX_GAME_PLAYS) {
                 undo_last_plays();
                 return 0;
             } else {

@@ -49,16 +49,19 @@ typedef struct {
     char promotion_option;
 } play_t;
 
+#define MAX_GAME_PLAYS 512
+
 typedef struct {
-    int64_t past_hashes[256]; // of the position before each play, for repetition detection
-    play_t past_plays[256];
+    // of the position before each play, for repetition detection
+    int64_t past_hashes[MAX_GAME_PLAYS];
+    play_t past_plays[MAX_GAME_PLAYS];
     unsigned int past_plays_count;
     unsigned int fullmoves;
     char last_play_x;
     char last_play_y;
 } board_ext_t;
 
-// draft is how many plies were still left to search below the node when the score was produced,
+// draft is how many plays were still left to search below the node when the score was produced,
 // so a shallower entry can be recognised and its score refused; quiescence entries store 0.
 // age is the number of the search that wrote it, which is what lets an entry left over from an
 // earlier move be picked as the one to overwrite. Sixteen bytes.
@@ -70,13 +73,11 @@ typedef struct {
     uint8_t age;
 } hash_table_entry_t;
 
-// Depth iterative deepening stops at when nothing else limits it, and the depth a plain "go" with
-// no time control uses, which keeps that case deterministic for regression testing.
+// Max search depth only reachable without time limits.
 #define MAX_SEARCH_DEPTH 64
 #ifndef DEFAULT_SEARCH_DEPTH
 #define DEFAULT_SEARCH_DEPTH 5
 #endif
-// Extra plies the capture-only (quiescence) search is allowed to spend past the main search
 #define QUIESCENCE_EXTRA_DEPTH 2
 #define MAX_TOTAL_SEARCH_DEPTH (MAX_SEARCH_DEPTH + QUIESCENCE_EXTRA_DEPTH)
 #define HASH_TABLE_BUCKET 4
