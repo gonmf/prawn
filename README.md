@@ -4,15 +4,16 @@
 [![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=blitz)](https://lichess.org/@/prawn_bot/perf/blitz)
 [![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=rapid)](https://lichess.org/@/prawn_bot/perf/rapid)
 
-A toy chess playing program with bitboard move generation, alpha-beta search with a
-transposition table, iterative deepening, quiescence search and UCI time controls.
+A small single-threaded chess program, with UCI and text-based support, only minimal use of opening books.
 
 [Challenge it to a game on lichess](https://lichess.org/@/prawn_bot)
 
-**prawn** understands FEN notation, moves in long algebraic notation, and its own
-format of simple opening books. It has a text interface supporting self-play and
-play against a human, and it speaks the UCI protocol for external graphical
-interfaces.
+**prawn** performs alpha-beta pruning with iterative deepening for timed play with quiescence search at the leafs, with delta and SEE pruning. Move generation uses precomputed attack masks and bitwise operations. A transposition table is also used with Zobrist hashing, incremental hash updates. It uses a simple material evaluator with mid/endgame tables and some nudges for endgame play (no endgame tables yet).
+
+It understands FEN notation, moves in long algebraic notation, and its own format of simple opening books. It has a text interface supporting self-play and play against a human, and it speaks the UCI protocol for external graphical interfaces and timed play.
+
+Check TODO.txt for all missing and planned features.
+
 
 ## Building
 
