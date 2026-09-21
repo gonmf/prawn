@@ -3,6 +3,8 @@
 A toy chess playing program with bitboard move generation, alpha-beta search with a
 transposition table, iterative deepening, quiescence search and UCI time controls.
 
+[Challenge it to a game on lichess](https://lichess.org/@/prawn_bot)
+
 **prawn** understands FEN notation, moves in long algebraic notation, and its own
 format of simple opening books. It has a text interface supporting self-play and
 play against a human, and it speaks the UCI protocol for external graphical
