@@ -12,7 +12,7 @@ A small single-threaded chess program, with UCI and text-based support, only min
 
 It understands FEN notation, moves in long algebraic notation, and its own format of simple opening books. It has a text interface supporting self-play and play against a human, and it speaks the UCI protocol for external graphical interfaces and timed play.
 
-Check TODO.txt for all missing and planned features.
+Check [TODO.md](TODO.md) for all missing and planned features.
 
 
 ## Building
