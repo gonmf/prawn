@@ -24,6 +24,11 @@ static board_ext_t board_ext;
 // How far short of alpha a capture may leave the node before it is not worth searching
 #define DELTA_MARGIN 200
 
+#define MIDGAME_MATERIAL 6400
+#define ENDGAME_MATERIAL 1300
+#define MATE_DRIVE_EDGE 10
+#define MATE_DRIVE_CLOSE 4
+
 #define MAX(A,B) ((A) > (B) ? (A) : (B))
 #define MIN(A,B) ((A) < (B) ? (A) : (B))
 
@@ -2573,7 +2578,53 @@ static int king_threatened(const board_t * board) {
     }
 }
 
+static int cannot_force_mate(int pawns, int knights, int bishops, int rooks, int queens) {
+    if (pawns || rooks || queens) {
+        return 0;
+    }
+    if (knights + bishops <= 1) {
+        return 1;
+    }
+    return bishops == 0 && knights == 2;
+}
+
+static int distance_from_centre(int sq) {
+    int x = sq % 8;
+    int y = sq / 8;
+    int dx = x < 4 ? 3 - x : x - 4;
+    int dy = y < 4 ? 3 - y : y - 4;
+
+    return dx + dy;
+}
+
+static int king_distance(int a, int b) {
+    int dx = (a % 8) - (b % 8);
+    int dy = (a / 8) - (b / 8);
+    if (dx < 0) dx = -dx;
+    if (dy < 0) dy = -dy;
+
+    return dx > dy ? dx : dy;
+}
+
 static int estimate_board_score(const board_t * board) {
+    int white_pawns_n = __builtin_popcountll(board->white_pawns);
+    int white_knights_n = __builtin_popcountll(board->white_knights);
+    int white_bishops_n = __builtin_popcountll(board->white_bishops);
+    int white_rooks_n = __builtin_popcountll(board->white_rooks);
+    int white_queens_n = __builtin_popcountll(board->white_queens);
+    int black_pawns_n = __builtin_popcountll(board->black_pawns);
+    int black_knights_n = __builtin_popcountll(board->black_knights);
+    int black_bishops_n = __builtin_popcountll(board->black_bishops);
+    int black_rooks_n = __builtin_popcountll(board->black_rooks);
+    int black_queens_n = __builtin_popcountll(board->black_queens);
+
+    int white_can_mate = !cannot_force_mate(white_pawns_n, white_knights_n, white_bishops_n, white_rooks_n, white_queens_n);
+    int black_can_mate = !cannot_force_mate(black_pawns_n, black_knights_n, black_bishops_n, black_rooks_n, black_queens_n);
+
+    if (!white_can_mate && !black_can_mate) {
+        return DRAW_SCORE;
+    }
+
     int score = 0;
 
     const int knight_pst[64] = {
@@ -2676,7 +2727,6 @@ static int estimate_board_score(const board_t * board) {
         queens &= queens - 1;
     }
 
-/*
     const int king_midgame_pst[64] = {
         -30, -40, -40, -50, -50, -40, -40, -30,
         -30, -40, -40, -50, -50, -40, -40, -30,
@@ -2699,20 +2749,45 @@ static int estimate_board_score(const board_t * board) {
         -50, -30, -30, -30, -30, -30, -30, -50,
     };
 
-    const int * king_pst = score > 1450 ? king_midgame_pst : king_endgame_pst;
+    int phase = white_knights_n * KNIGHT_VALUE + white_bishops_n * BISHOP_VALUE
+        + white_rooks_n * ROOK_VALUE + white_queens_n * QUEEN_VALUE
+        + black_knights_n * KNIGHT_VALUE + black_bishops_n * BISHOP_VALUE
+        + black_rooks_n * ROOK_VALUE + black_queens_n * QUEEN_VALUE;
 
-    uint64_t kings = board->white_kings;
-    if (kings) {
-        int sq = __builtin_ctzll(kings);
-        score += king_pst[sq];
+    if (phase > MIDGAME_MATERIAL) {
+        phase = MIDGAME_MATERIAL;
+    }
+    if (phase < ENDGAME_MATERIAL) {
+        phase = ENDGAME_MATERIAL;
     }
 
-    kings = board->black_kings;
-    if (kings) {
-        int sq = __builtin_ctzll(kings);
-        score -= king_pst[sq ^ 56];
+    int midgame_weight = phase - ENDGAME_MATERIAL;
+    int endgame_weight = MIDGAME_MATERIAL - phase;
+    int weight_span = MIDGAME_MATERIAL - ENDGAME_MATERIAL;
+
+    int white_king_p = board->white_kings ? __builtin_ctzll(board->white_kings) : -1;
+    int black_king_p = board->black_kings ? __builtin_ctzll(board->black_kings) : -1;
+
+    if (white_king_p >= 0) {
+        score += (king_midgame_pst[white_king_p] * midgame_weight
+            + king_endgame_pst[white_king_p] * endgame_weight) / weight_span;
     }
-*/
+    if (black_king_p >= 0) {
+        score -= (king_midgame_pst[black_king_p ^ 56] * midgame_weight
+            + king_endgame_pst[black_king_p ^ 56] * endgame_weight) / weight_span;
+    }
+
+    if (white_king_p >= 0 && black_king_p >= 0) {
+        int white_men = white_pawns_n + white_knights_n + white_bishops_n + white_rooks_n + white_queens_n;
+        int black_men = black_pawns_n + black_knights_n + black_bishops_n + black_rooks_n + black_queens_n;
+        int closeness = 7 - king_distance(white_king_p, black_king_p);
+
+        if (black_men == 0 && white_can_mate) {
+            score += MATE_DRIVE_EDGE * distance_from_centre(black_king_p) + MATE_DRIVE_CLOSE * closeness;
+        } else if (white_men == 0 && black_can_mate) {
+            score -= MATE_DRIVE_EDGE * distance_from_centre(white_king_p) + MATE_DRIVE_CLOSE * closeness;
+        }
+    }
 
     const int pawn_pst[64] = {
          0,  0,  0,  0,  0,  0,  0,  0,
