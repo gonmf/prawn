@@ -1,5 +1,9 @@
 # prawn 🦐
 
+[![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=bullet)](https://lichess.org/@/prawn_bot/perf/bullet)
+[![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=blitz)](https://lichess.org/@/prawn_bot/perf/blitz)
+[![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=rapid)](https://lichess.org/@/prawn_bot/perf/rapid)
+
 A toy chess playing program with bitboard move generation, alpha-beta search with a
 transposition table, iterative deepening, quiescence search and UCI time controls.
 
