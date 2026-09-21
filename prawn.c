@@ -14,6 +14,16 @@ static board_ext_t board_ext;
 #define MATE_SCORE 20000000
 #define MATE_THRESHOLD (MATE_SCORE - 128 * (MAX_TOTAL_SEARCH_DEPTH + 1))
 
+#define PAWN_VALUE 100
+#define KNIGHT_VALUE 320
+#define BISHOP_VALUE 330
+#define ROOK_VALUE 500
+#define QUEEN_VALUE 900
+#define KING_VALUE 20000
+
+// How far short of alpha a capture may leave the node before it is not worth searching
+#define DELTA_MARGIN 200
+
 #define MAX(A,B) ((A) > (B) ? (A) : (B))
 #define MIN(A,B) ((A) < (B) ? (A) : (B))
 
@@ -2274,6 +2284,125 @@ static uint64_t compute_pins(const board_t * board, int king_p, int own_color, u
     return pinned;
 }
 
+static int piece_value(char piece) {
+    switch (piece) {
+        case 'P': case 'p': return PAWN_VALUE;
+        case 'N': case 'n': return KNIGHT_VALUE;
+        case 'B': case 'b': return BISHOP_VALUE;
+        case 'R': case 'r': return ROOK_VALUE;
+        case 'Q': case 'q': return QUEEN_VALUE;
+        case 'K': case 'k': return KING_VALUE;
+        default: return 0;
+    }
+}
+
+static uint64_t attackers_to_square(const board_t * board, int sq, uint64_t occupied) {
+    uint64_t attackers = 0;
+
+    attackers |= knight_moves_masks[sq] & (board->white_knights | board->black_knights);
+    attackers |= king_moves_masks[sq] & (board->white_kings | board->black_kings);
+    attackers |= white_pawn_capture_masks[sq] & board->black_pawns;
+    attackers |= black_pawn_capture_masks[sq] & board->white_pawns;
+
+    uint64_t rooks_queens = board->white_rooks | board->black_rooks | board->white_queens | board->black_queens;
+    uint64_t bishops_queens = board->white_bishops | board->black_bishops | board->white_queens | board->black_queens;
+
+    static const int directions[8][2] = {
+        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+        {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
+    };
+
+    int from_x = sq % 8;
+    int from_y = sq / 8;
+
+    for (int d = 0; d < 8; ++d) {
+        uint64_t sliders = d < 4 ? rooks_queens : bishops_queens;
+        int dx = directions[d][0];
+        int dy = directions[d][1];
+        int x = from_x + dx;
+        int y = from_y + dy;
+
+        while (x >= 0 && x < 8 && y >= 0 && y < 8) {
+            uint64_t to_mask = 1ULL << (y * 8 + x);
+
+            if (occupied & to_mask) {
+                if (sliders & to_mask) {
+                    attackers |= to_mask;
+                }
+                break;
+            }
+
+            x += dx;
+            y += dy;
+        }
+    }
+
+    return attackers & occupied;
+}
+
+static int static_exchange_eval(const board_t * board, const play_t * play, int mover_is_white) {
+    int from_p = play->from_y * 8 + play->from_x;
+    int to_p = play->to_y * 8 + play->to_x;
+
+    char victim = identify_piece_of(board, to_p, mover_is_white ? BLACK_COLOR : WHITE_COLOR);
+    if (victim == ' ') {
+        return 0;
+    }
+    if (play->promotion_option != 0) {
+        return QUEEN_VALUE;
+    }
+
+    char attacker = identify_piece_of(board, from_p, mover_is_white ? WHITE_COLOR : BLACK_COLOR);
+
+    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
+    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t occupied = (white_mask | black_mask) ^ (1ULL << from_p);
+
+    int gain[32];
+    int d = 0;
+    gain[0] = piece_value(victim);
+    int attacker_value = piece_value(attacker);
+    int white_to_move = !mover_is_white;
+
+    while (d < 30) {
+        d++;
+        gain[d] = attacker_value - gain[d - 1];
+
+        uint64_t attackers = attackers_to_square(board, to_p, occupied);
+        uint64_t own = attackers & (white_to_move ? white_mask : black_mask);
+        if (own == 0) {
+            break;
+        }
+
+        int cheapest_sq = -1;
+        int cheapest_value = KING_VALUE + 1;
+        uint64_t bits = own;
+        while (bits) {
+            int s = __builtin_ctzll(bits);
+            int v = piece_value(identify_piece_of(board, s, white_to_move ? WHITE_COLOR : BLACK_COLOR));
+            if (v < cheapest_value) {
+                cheapest_value = v;
+                cheapest_sq = s;
+            }
+            bits &= bits - 1;
+        }
+
+        if (cheapest_value == KING_VALUE && (attackers & (white_to_move ? black_mask : white_mask)) != 0) {
+            break;
+        }
+
+        occupied ^= 1ULL << cheapest_sq;
+        attacker_value = cheapest_value;
+        white_to_move = !white_to_move;
+    }
+
+    while (--d > 0) {
+        gain[d - 1] = -MAX(-gain[d - 1], gain[d]);
+    }
+
+    return gain[0];
+}
+
 static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * board, int captures_only, int * out_in_check) {
     int valid_plays_i = 0;
     play_t valid_plays_local[218];
@@ -2461,14 +2590,14 @@ static int estimate_board_score(const board_t * board) {
     uint64_t knights = board->white_knights;
     while (knights) {
         int sq = __builtin_ctzll(knights);
-        score += 320 + knight_pst[sq];
+        score += KNIGHT_VALUE + knight_pst[sq];
         knights &= knights - 1;
     }
 
     knights = board->black_knights;
     while (knights) {
         int sq = __builtin_ctzll(knights);
-        score -= 320 + knight_pst[sq ^ 56];
+        score -= KNIGHT_VALUE + knight_pst[sq ^ 56];
         knights &= knights - 1;
     }
 
@@ -2486,14 +2615,14 @@ static int estimate_board_score(const board_t * board) {
     uint64_t bishops = board->white_bishops;
     while (bishops) {
         int sq = __builtin_ctzll(bishops);
-        score += 330 + bishop_pst[sq];
+        score += BISHOP_VALUE + bishop_pst[sq];
         bishops &= bishops - 1;
     }
 
     bishops = board->black_bishops;
     while (bishops) {
         int sq = __builtin_ctzll(bishops);
-        score -= 330 + bishop_pst[sq ^ 56];
+        score -= BISHOP_VALUE + bishop_pst[sq ^ 56];
         bishops &= bishops - 1;
     }
 
@@ -2511,14 +2640,14 @@ static int estimate_board_score(const board_t * board) {
     uint64_t rooks = board->white_rooks;
     while (rooks) {
         int sq = __builtin_ctzll(rooks);
-        score += 500 + rook_pst[sq];
+        score += ROOK_VALUE + rook_pst[sq];
         rooks &= rooks - 1;
     }
 
     rooks = board->black_rooks;
     while (rooks) {
         int sq = __builtin_ctzll(rooks);
-        score -= 500 + rook_pst[sq ^ 56];
+        score -= ROOK_VALUE + rook_pst[sq ^ 56];
         rooks &= rooks - 1;
     }
 
@@ -2536,14 +2665,14 @@ static int estimate_board_score(const board_t * board) {
     uint64_t queens = board->white_queens;
     while (queens) {
         int sq = __builtin_ctzll(queens);
-        score += 900 + queen_pst[sq];
+        score += QUEEN_VALUE + queen_pst[sq];
         queens &= queens - 1;
     }
 
     queens = board->black_queens;
     while (queens) {
         int sq = __builtin_ctzll(queens);
-        score -= 900 + queen_pst[sq ^ 56];
+        score -= QUEEN_VALUE + queen_pst[sq ^ 56];
         queens &= queens - 1;
     }
 
@@ -2599,14 +2728,14 @@ static int estimate_board_score(const board_t * board) {
     uint64_t pawns = board->white_pawns;
     while (pawns) {
         int sq = __builtin_ctzll(pawns);
-        score += 100 + pawn_pst[sq];
+        score += PAWN_VALUE + pawn_pst[sq];
         pawns &= pawns - 1;
     }
 
     pawns = board->black_pawns;
     while (pawns) {
         int sq = __builtin_ctzll(pawns);
-        score -= 100 + pawn_pst[sq ^ 56];
+        score -= PAWN_VALUE + pawn_pst[sq ^ 56];
         pawns &= pawns - 1;
     }
 
@@ -2718,7 +2847,26 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         alpha = MAX(alpha, best_score);
     }
 
+    int stand_pat = best_score;
+
     for (int i = 0; i < valid_plays_i; ++i) {
+        if (!in_check) {
+            int to_p = valid_plays[i].to_y * 8 + valid_plays[i].to_x;
+            char victim = identify_piece_of(board, to_p, BLACK_COLOR);
+            int victim_value = piece_value(victim);
+
+            // never worth a sacrifice this much bellow alpha
+            if (victim != ' ' && valid_plays[i].promotion_option == 0
+                && stand_pat + victim_value + DELTA_MARGIN < alpha) {
+                continue;
+            }
+
+            char attacker = identify_piece_of(board, valid_plays[i].from_y * 8 + valid_plays[i].from_x, WHITE_COLOR);
+            if (victim_value < piece_value(attacker) && static_exchange_eval(board, &valid_plays[i], 1) < 0) {
+                continue;
+            }
+        }
+
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
@@ -2851,7 +2999,25 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
         beta = MIN(beta, best_score);
     }
 
+    int stand_pat = best_score;
+
     for (int i = 0; i < valid_plays_i; ++i) {
+        if (!in_check) {
+            int to_p = valid_plays[i].to_y * 8 + valid_plays[i].to_x;
+            char victim = identify_piece_of(board, to_p, WHITE_COLOR);
+            int victim_value = piece_value(victim);
+
+            if (victim != ' ' && valid_plays[i].promotion_option == 0
+                && stand_pat - victim_value - DELTA_MARGIN > beta) {
+                continue;
+            }
+
+            char attacker = identify_piece_of(board, valid_plays[i].from_y * 8 + valid_plays[i].from_x, BLACK_COLOR);
+            if (victim_value < piece_value(attacker) && static_exchange_eval(board, &valid_plays[i], 0) < 0) {
+                continue;
+            }
+        }
+
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
