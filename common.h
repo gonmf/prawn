@@ -12,6 +12,8 @@
 
 #define PROGRAM_VERSION "1.2"
 
+#define DEFAULT_SEARCH_DEPTH 7
+
 typedef struct {
     uint64_t white_pawns;
     uint64_t black_pawns;
@@ -25,6 +27,8 @@ typedef struct {
     uint64_t black_queens;
     uint64_t white_kings;
     uint64_t black_kings;
+    uint64_t white_mask; // equivalent to the OR of the above
+    uint64_t black_mask; // equivalent to the OR of the above
     char white_left_castling;
     char white_right_castling;
     char black_left_castling;

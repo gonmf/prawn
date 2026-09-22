@@ -95,6 +95,11 @@ void fen_to_board(board_t * board, board_ext_t * board_ext, const char * fen_str
     board_ext->past_plays_count = 0;
     board_ext->last_play_x = -1;
     board_ext->last_play_y = -1;
+
+    board->white_mask = board->white_pawns | board->white_knights | board->white_bishops
+        | board->white_rooks | board->white_queens | board->white_kings;
+    board->black_mask = board->black_pawns | board->black_knights | board->black_bishops
+        | board->black_rooks | board->black_queens | board->black_kings;
 }
 
 void board_to_fen(char * fen_str, const board_t * board, const board_ext_t * board_ext) {

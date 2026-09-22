@@ -711,6 +711,13 @@ static void print_board(const board_t * board, const board_ext_t * board_ext) {
     fprint_board(stdout, board, board_ext);
 }
 
+static void refresh_masks(board_t * board) {
+    board->white_mask = board->white_pawns | board->white_knights | board->white_bishops
+        | board->white_rooks | board->white_queens | board->white_kings;
+    board->black_mask = board->black_pawns | board->black_knights | board->black_bishops
+        | board->black_rooks | board->black_queens | board->black_kings;
+}
+
 static void just_play_white_simple(board_t * board, const play_t * play) {
     char from_x = play->from_x;
     char from_y = play->from_y;
@@ -788,6 +795,8 @@ static void just_play_white_simple(board_t * board, const play_t * play) {
             }
         }
     }
+
+    refresh_masks(board);
 }
 
 static void just_play_black_simple(board_t * board, const play_t * play) {
@@ -867,6 +876,8 @@ static void just_play_black_simple(board_t * board, const play_t * play) {
             }
         }
     }
+
+    refresh_masks(board);
 }
 
 static void just_play_white_pawn(board_t * board, const play_t * play, int64_t * out_hash) {
@@ -968,6 +979,8 @@ static void just_play_white_pawn(board_t * board, const play_t * play, int64_t *
     board->color = BLACK_COLOR;
 
     *out_hash = hash;
+
+    refresh_masks(board);
 }
 
 static void just_play_white_complex(board_t * board, const play_t * play, int64_t * out_hash) {
@@ -1109,6 +1122,8 @@ static void just_play_white_complex(board_t * board, const play_t * play, int64_
     board->color = BLACK_COLOR;
 
     *out_hash = hash;
+
+    refresh_masks(board);
 }
 
 static void just_play_black_pawn(board_t * board, const play_t * play, int64_t * out_hash) {
@@ -1210,6 +1225,8 @@ static void just_play_black_pawn(board_t * board, const play_t * play, int64_t *
     board->color = WHITE_COLOR;
 
     *out_hash = hash;
+
+    refresh_masks(board);
 }
 
 static void just_play_black_complex(board_t * board, const play_t * play, int64_t * out_hash) {
@@ -1351,6 +1368,8 @@ static void just_play_black_complex(board_t * board, const play_t * play, int64_
     board->color = WHITE_COLOR;
 
     *out_hash = hash;
+
+    refresh_masks(board);
 }
 
 static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play) {
@@ -1381,8 +1400,8 @@ static void actual_play(board_t * board, board_ext_t * board_ext, const play_t *
 static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_t * board, int captures_only) {
     int valid_plays_i = 0;
 
-    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
-    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t white_mask = board->white_mask;
+    uint64_t black_mask = board->black_mask;
     uint64_t empty_mask = ~(white_mask | black_mask);
     uint64_t destination_mask = captures_only ? black_mask : (empty_mask | black_mask);
     uint64_t moves = (board->white_pawns >> 8) & empty_mask;
@@ -1770,8 +1789,8 @@ static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_
 static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_t * board, int captures_only) {
     int valid_plays_i = 0;
 
-    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
-    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t white_mask = board->white_mask;
+    uint64_t black_mask = board->black_mask;
     uint64_t empty_mask = ~(white_mask | black_mask);
     uint64_t destination_mask = captures_only ? white_mask : (empty_mask | white_mask);
     uint64_t moves = (board->black_pawns << 8) & empty_mask;
@@ -2158,8 +2177,8 @@ static int enumerate_all_possible_plays_black(play_t * valid_plays, const board_
 
 // Ignores capturing via en passant
 static int square_attacked_by(const board_t * board, int sq, int by_color) {
-    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
-    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t white_mask = board->white_mask;
+    uint64_t black_mask = board->black_mask;
     uint64_t occupied = white_mask | black_mask;
 
     uint64_t knights, kings, pawns, pawn_origins, rooks_queens, bishops_queens;
@@ -2227,8 +2246,8 @@ static int square_attacked_by(const board_t * board, int sq, int by_color) {
 }
 
 static uint64_t compute_pins(const board_t * board, int king_p, int own_color, uint64_t * pin_ray) {
-    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
-    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t white_mask = board->white_mask;
+    uint64_t black_mask = board->black_mask;
     uint64_t occupied = white_mask | black_mask;
 
     uint64_t own, enemy_rooks_queens, enemy_bishops_queens;
@@ -2362,8 +2381,8 @@ static int static_exchange_eval(const board_t * board, const play_t * play, int 
 
     char attacker = identify_piece_of(board, from_p, mover_is_white ? WHITE_COLOR : BLACK_COLOR);
 
-    uint64_t white_mask = board->white_pawns | board->white_knights | board->white_bishops | board->white_rooks | board->white_queens | board->white_kings;
-    uint64_t black_mask = board->black_pawns | board->black_knights | board->black_bishops | board->black_rooks | board->black_queens | board->black_kings;
+    uint64_t white_mask = board->white_mask;
+    uint64_t black_mask = board->black_mask;
     uint64_t occupied = (white_mask | black_mask) ^ (1ULL << from_p);
 
     int gain[32];
@@ -3879,6 +3898,7 @@ static void reset_board() {
     board.black_right_castling = 1;
     board.color = WHITE_COLOR;
     board.halfmoves = 0;
+    refresh_masks(&board);
     board_ext.fullmoves = 1;
     board_ext.past_plays_count = 0;
     board_ext.last_play_x = -1;
