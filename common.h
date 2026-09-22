@@ -12,8 +12,6 @@
 
 #define PROGRAM_VERSION "1.2"
 
-#define DEFAULT_SEARCH_DEPTH 7
-
 typedef struct {
     uint64_t white_pawns;
     uint64_t black_pawns;
@@ -80,7 +78,7 @@ typedef struct {
 // Max search depth only reachable without time limits.
 #define MAX_SEARCH_DEPTH 64
 #ifndef DEFAULT_SEARCH_DEPTH
-#define DEFAULT_SEARCH_DEPTH 5
+#define DEFAULT_SEARCH_DEPTH 7
 #endif
 #ifndef QUIESCENCE_EXTRA_DEPTH
 #define QUIESCENCE_EXTRA_DEPTH 6
@@ -93,8 +91,8 @@ typedef struct {
 #define HASH_TABLE_BITS_FOR_DEPTH (3 * DEFAULT_SEARCH_DEPTH + 3)
 #if HASH_TABLE_BITS_FOR_DEPTH < 18
 #define HASH_TABLE_BITS 18
-#elif HASH_TABLE_BITS_FOR_DEPTH > 24
-#define HASH_TABLE_BITS 24
+#elif HASH_TABLE_BITS_FOR_DEPTH > 23
+#define HASH_TABLE_BITS 23
 #else
 #define HASH_TABLE_BITS HASH_TABLE_BITS_FOR_DEPTH
 #endif
