@@ -33,7 +33,7 @@ Things planned for development, in no specific order.
 - SEE pruning in the main search instead of just in qsearch
 - Search extensions - check, recapture, singular extensions, mate-distance pruning
 - Check generation for quiet mating nets
-- MVV-LVA, killer moves, history heuristic, countermove, continuation history, SEE-based capture sort
+- MVV-LVA, countermove, continuation history, SEE-based capture sort
 - Node lazy generation
 
 ## Performance

@@ -27,6 +27,11 @@ static board_ext_t board_ext;
 // How far short of alpha a capture may leave the node before it is not worth searching
 #define DELTA_MARGIN 200
 
+// Ordering bonuses for quiet plays. Both sit far above any history count, which is capped.
+#define KILLER_FIRST (1 << 28)
+#define KILLER_SECOND (1 << 27)
+#define HISTORY_MAX (1 << 20)
+
 #define MIDGAME_MATERIAL 6400
 #define ENDGAME_MATERIAL 1300
 #define MATE_DRIVE_EDGE 10
@@ -3150,6 +3155,31 @@ static int minimax_black_capture_only(const board_t * board, int depth, int max_
     return best_score;
 }
 
+// Two quiet plays per ply that last caused a cut there, and a running count per origin and
+// destination square. A play that refutes one line usually refutes its siblings.
+static int16_t killers[MAX_TOTAL_SEARCH_DEPTH + 1][2];
+static int history[2][64][64];
+
+static void record_quiet_cutoff(int color_index, int depth, const play_t * play, int draft) {
+    int16_t packed = pack_play(play);
+    if (killers[depth][0] != packed) {
+        killers[depth][1] = killers[depth][0];
+        killers[depth][0] = packed;
+    }
+
+    int from = play->from_y * 8 + play->from_x;
+    int to = play->to_y * 8 + play->to_x;
+    history[color_index][from][to] += draft * draft;
+
+    if (history[color_index][from][to] > HISTORY_MAX) {
+        for (int a = 0; a < 64; ++a) {
+            for (int b = 0; b < 64; ++b) {
+                history[color_index][a][b] /= 2;
+            }
+        }
+    }
+}
+
 static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash);
 
 static int minimax_white(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
@@ -3267,6 +3297,9 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
                 best_play = pack_play(&valid_plays[i]);
             }
             if (score >= beta) {
+                if (identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, BLACK_COLOR) == ' ') {
+                    record_quiet_cutoff(0, depth, &valid_plays[i], draft);
+                }
                 breakfor = 1;
                 break;
             }
@@ -3275,10 +3308,38 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     }
 
     if (!breakfor) {
+        int quiet_score[218];
         for (int i = 0; i < valid_plays_i; ++i) {
             if (captures[i]) {
                 continue;
             }
+
+            int16_t packed = pack_play(&valid_plays[i]);
+            if (packed == killers[depth][0]) {
+                quiet_score[i] = KILLER_FIRST;
+            } else if (packed == killers[depth][1]) {
+                quiet_score[i] = KILLER_SECOND;
+            } else {
+                quiet_score[i] = history[0][valid_plays[i].from_y * 8 + valid_plays[i].from_x][valid_plays[i].to_y * 8 + valid_plays[i].to_x];
+            }
+        }
+
+        while (1) {
+            // Picked as the loop reaches it rather than sorted up front, so a cut on the first
+            // one costs a single pass. captures[] marks a play as taken.
+            int i = -1;
+            for (int j = 0; j < valid_plays_i; ++j) {
+                if (captures[j]) {
+                    continue;
+                }
+                if (i == -1 || quiet_score[j] > quiet_score[i]) {
+                    i = j;
+                }
+            }
+            if (i == -1) {
+                break;
+            }
+            captures[i] = 1;
 
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = hash;
@@ -3301,6 +3362,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
                     best_play = pack_play(&valid_plays[i]);
                 }
                 if (score >= beta) {
+                    record_quiet_cutoff(0, depth, &valid_plays[i], draft);
                     break;
                 }
                 alpha = MAX(alpha, score);
@@ -3438,6 +3500,9 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
                 best_play = pack_play(&valid_plays[i]);
             }
             if (score <= alpha) {
+                if (identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, WHITE_COLOR) == ' ') {
+                    record_quiet_cutoff(1, depth, &valid_plays[i], draft);
+                }
                 breakfor = 1;
                 break;
             }
@@ -3446,10 +3511,38 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
     }
 
     if (!breakfor) {
+        int quiet_score[218];
         for (int i = 0; i < valid_plays_i; ++i) {
             if (captures[i]) {
                 continue;
             }
+
+            int16_t packed = pack_play(&valid_plays[i]);
+            if (packed == killers[depth][0]) {
+                quiet_score[i] = KILLER_FIRST;
+            } else if (packed == killers[depth][1]) {
+                quiet_score[i] = KILLER_SECOND;
+            } else {
+                quiet_score[i] = history[1][valid_plays[i].from_y * 8 + valid_plays[i].from_x][valid_plays[i].to_y * 8 + valid_plays[i].to_x];
+            }
+        }
+
+        while (1) {
+            // Picked as the loop reaches it rather than sorted up front, so a cut on the first
+            // one costs a single pass. captures[] marks a play as taken.
+            int i = -1;
+            for (int j = 0; j < valid_plays_i; ++j) {
+                if (captures[j]) {
+                    continue;
+                }
+                if (i == -1 || quiet_score[j] > quiet_score[i]) {
+                    i = j;
+                }
+            }
+            if (i == -1) {
+                break;
+            }
+            captures[i] = 1;
 
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = hash;
@@ -3472,6 +3565,7 @@ static int minimax_black(const board_t * board, int depth, int max_depth, int al
                     best_play = pack_play(&valid_plays[i]);
                 }
                 if (score <= alpha) {
+                    record_quiet_cutoff(1, depth, &valid_plays[i], draft);
                     break;
                 }
                 beta = MIN(beta, score);
@@ -3627,6 +3721,15 @@ static int ai_play(play_t * play) {
         search_history[search_history_count++] = board_ext.past_hashes[i];
     }
     search_history[search_history_count++] = root_hash;
+
+    memset(killers, 0, sizeof(killers));
+    for (int c = 0; c < 2; ++c) {
+        for (int a = 0; a < 64; ++a) {
+            for (int b = 0; b < 64; ++b) {
+                history[c][a][b] /= 2;
+            }
+        }
+    }
 
     gettimeofday(&search_start, NULL);
     search_aborted = 0;
