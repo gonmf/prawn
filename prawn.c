@@ -1,6 +1,9 @@
 #include "common.h"
 
-static char buffer[1024];
+// Must fit a whole game position command in UCI
+#define INPUT_BUFFER_SIZE 16384
+
+static char buffer[INPUT_BUFFER_SIZE];
 
 static board_t board;
 static board_ext_t board_ext;
@@ -169,7 +172,7 @@ static void init_opening_book() {
 
     while (opening_book_size < MAX_SUPPORTED_OB_RULES) {
         file_row += 1;
-        char * r = fgets(buffer, 4 * 1024, fp);
+        char * r = fgets(buffer, sizeof(buffer), fp);
         if (r == NULL) {
             break;
         }
@@ -3696,7 +3699,7 @@ static int ai_play(play_t * play) {
 }
 
 static void read_input_line() {
-    if (fgets(buffer, 1024, stdin) == NULL) {
+    if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
         printf("\n");
         exit(EXIT_SUCCESS);
     }
@@ -4034,14 +4037,19 @@ static void uci_mode(FILE * fd) {
     arbitrate_draws = extend_uci;
 
     while (1) {
-        if (fgets(buffer, 1024, stdin) == NULL) {
+        if (fgets(buffer, sizeof(buffer), stdin) == NULL) {
             break;
         }
-        for (int i = 0; i < 1024; ++i) {
-            if (buffer[i] == '\n') {
-                buffer[i] = 0;
-                break;
-            }
+        char * newline = strchr(buffer, '\n');
+        if (newline != NULL) {
+            *newline = 0;
+        } else if (!feof(stdin)) {
+            int c;
+            while ((c = getchar()) != '\n' && c != EOF);
+
+            fprintf(fd, "# Input line longer than %d, ignored\n", INPUT_BUFFER_SIZE - 1);
+            fflush(fd);
+            continue;
         }
 
         fprintf(fd, "> %s\n", buffer);
