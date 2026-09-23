@@ -144,7 +144,7 @@ static int interrupted() {
     return select(STDIN_FILENO + 1, &readfs, NULL, NULL, &tm) > 0;
 }
 
-static long elapsed_ms(struct timeval start, struct timeval end) {
+static long int elapsed_ms(struct timeval start, struct timeval end) {
     return (end.tv_sec - start.tv_sec) * 1000L +
            (end.tv_usec - start.tv_usec) / 1000L;
 }
@@ -237,7 +237,7 @@ int main(int argc, char * argv[]) {
     gettimeofday(&start, NULL);
 
     double best_variance = -1.0;
-    long tables = 0;
+    long int tables = 0;
 
     while (1) {
         fill_table(table, entries);

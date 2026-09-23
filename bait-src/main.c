@@ -42,7 +42,7 @@ static void write_line(int fd, const char * s) {
     write(fd, s, strlen(s));
 }
 
-static long elapsed_ms(struct timeval start, struct timeval end) {
+static long int elapsed_ms(struct timeval start, struct timeval end) {
     return (end.tv_sec - start.tv_sec) * 1000L +
            (end.tv_usec - start.tv_usec) / 1000L;
 }

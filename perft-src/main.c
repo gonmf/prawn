@@ -93,10 +93,10 @@ static void perft_divide(const board_t * board, int depth) {
         total += nodes;
 
         format_play(play_str, &valid_plays[i]);
-        printf("%-6s %llu\n", play_str, (unsigned long long)nodes);
+        printf("%-6s %llu\n", play_str, (unsigned long long int)nodes);
     }
 
-    printf("\n%d moves, %llu nodes\n", valid_plays_i, (unsigned long long)total);
+    printf("\n%d moves, %llu nodes\n", valid_plays_i, (unsigned long long int)total);
 }
 
 // See https://www.chessprogramming.org/Perft_Results
@@ -154,9 +154,9 @@ int main(int argc, char * argv[]) {
         uint64_t nodes = perft(&test_board, cases[i].depth);
 
         if (nodes == cases[i].expected) {
-            printf("ok   %-11s depth %d  %llu\n", cases[i].name, cases[i].depth, (unsigned long long)nodes);
+            printf("ok   %-11s depth %d  %llu\n", cases[i].name, cases[i].depth, (unsigned long long int)nodes);
         } else {
-            printf("FAIL %-11s depth %d  expected %llu, got %llu\n", cases[i].name, cases[i].depth, (unsigned long long)cases[i].expected, (unsigned long long)nodes);
+            printf("FAIL %-11s depth %d  expected %llu, got %llu\n", cases[i].name, cases[i].depth, (unsigned long long int)cases[i].expected, (unsigned long long int)nodes);
             printf("     %s\n", cases[i].fen);
             failed++;
         }

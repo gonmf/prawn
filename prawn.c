@@ -54,26 +54,45 @@ static int64_t zobrist_castling[4];
 
 static hash_table_entry_t * hash_table;
 
+static int64_t search_history[MAX_GAME_PLAYS + MAX_TOTAL_SEARCH_DEPTH + 4];
+static int search_history_count;
+
 static struct timeval search_start;
-static long search_budget_ms;
+static long int search_budget_ms;
 static int search_depth_limit = DEFAULT_SEARCH_DEPTH;
 static int search_aborted;
 static uint64_t search_nodes;
 static int search_abortable;
 
-static long elapsed_ms(struct timeval start, struct timeval end) {
+static unsigned int opening_book_size;
+static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
+static char ob_play_colors[MAX_SUPPORTED_OB_RULES];
+static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
+
+static int opening_book_enabled = 1;
+static int extend_uci = 0;
+static int arbitrate_draws = 1;
+static int uci_game_in_error_state = 0;
+static int convert_at_ob_depth = -1;
+static char program_dir[1024];
+
+static void reset_board();
+static void send_uci_command(FILE * fd, const char * str);
+static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play);
+static int64_t hash_from_board(const board_t * board);
+static int enumerate_legal_plays(play_t * valid_plays, const board_t * board);
+static int insufficient_material(const board_t * board);
+
+static long int elapsed_ms(struct timeval start, struct timeval end) {
     return (end.tv_sec - start.tv_sec) * 1000L + (end.tv_usec - start.tv_usec) / 1000L;
 }
 
-static long search_elapsed_ms() {
+static long int search_elapsed_ms() {
     struct timeval now;
     gettimeofday(&now, NULL);
 
     return elapsed_ms(search_start, now);
 }
-
-static int64_t search_history[MAX_GAME_PLAYS + MAX_TOTAL_SEARCH_DEPTH + 4];
-static int search_history_count;
 
 // A position already seen is scored as a draw on its first repetition rather than its third: a side
 // able to repeat once can nearly always repeat again, and waiting for the third costs time to see.
@@ -101,26 +120,6 @@ static int out_of_time() {
 
     return search_elapsed_ms() >= search_budget_ms;
 }
-
-static unsigned int opening_book_size;
-static uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
-static char ob_play_colors[MAX_SUPPORTED_OB_RULES];
-static play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
-
-static int opening_book_enabled = 1;
-static int extend_uci = 0;
-static int arbitrate_draws = 1;
-static int uci_game_in_error_state = 0;
-static int convert_at_ob_depth = -1;
-
-static void reset_board();
-static void send_uci_command(FILE * fd, const char * str);
-static void actual_play(board_t * board, board_ext_t * board_ext, const play_t * play);
-static int64_t hash_from_board(const board_t * board);
-static int enumerate_legal_plays(play_t * valid_plays, const board_t * board);
-static int insufficient_material(const board_t * board);
-
-static char program_dir[1024];
 
 static void set_program_dir(const char * program_name) {
     const char * slash = strrchr(program_name, '/');
@@ -559,29 +558,7 @@ static void populate_zobrist_masks() {
     free(zobrist_file);
 }
 
-static int64_t update_hash_with_piece_white(int64_t hash, int pos, char piece) {
-    switch (piece) {
-        case 'P': return hash ^ (zobrist_map[pos][0]);
-        case 'R': return hash ^ (zobrist_map[pos][2]);
-        case 'N': return hash ^ (zobrist_map[pos][4]);
-        case 'B': return hash ^ (zobrist_map[pos][6]);
-        case 'K': return hash ^ (zobrist_map[pos][10]);
-        default:  return hash ^ (zobrist_map[pos][8]);
-    }
-}
-
-static int64_t update_hash_with_piece_black(int64_t hash, int pos, char piece) {
-    switch (piece) {
-        case 'p': return hash ^ (zobrist_map[pos][1]);
-        case 'r': return hash ^ (zobrist_map[pos][3]);
-        case 'n': return hash ^ (zobrist_map[pos][5]);
-        case 'b': return hash ^ (zobrist_map[pos][7]);
-        case 'k': return hash ^ (zobrist_map[pos][11]);
-        default:  return hash ^ (zobrist_map[pos][9]);
-    }
-}
-
-static int64_t update_hash_with_piece_any_color(int64_t hash, int pos, char piece) {
+static int64_t update_hash_with_piece(int64_t hash, int pos, char piece) {
     switch (piece) {
         case 'P': return hash ^ (zobrist_map[pos][0]);
         case 'p': return hash ^ (zobrist_map[pos][1]);
@@ -636,7 +613,7 @@ static int64_t hash_from_board(const board_t * board) {
     for (int p = 0; p < 64; ++p) {
         char piece = identify_piece(board, p);
         if (piece != ' ') {
-            hash = update_hash_with_piece_any_color(hash, p, piece);
+            hash = update_hash_with_piece(hash, p, piece);
         }
     }
 
@@ -902,9 +879,9 @@ static void just_play_white_pawn(board_t * board, const play_t * play, int64_t *
 
     int64_t hash = *out_hash;
 
-    hash = update_hash_with_piece_white(hash, from_p, from_piece);
+    hash = update_hash_with_piece(hash, from_p, from_piece);
     if (to_piece != ' ') {
-        hash = update_hash_with_piece_black(hash, to_p, to_piece);
+        hash = update_hash_with_piece(hash, to_p, to_piece);
     }
 
     hash ^= zobrist_side_to_move;
@@ -938,7 +915,7 @@ static void just_play_white_pawn(board_t * board, const play_t * play, int64_t *
 
     if (en_passant_x != NO_EN_PASSANT) {
         if (en_passant_x == to_x && from_y == 3) {
-            hash = update_hash_with_piece_black(hash, 3 * 8 + en_passant_x, 'p');
+            hash = update_hash_with_piece(hash, 3 * 8 + en_passant_x, 'p');
             board->black_pawns ^= 1ULL << (3 * 8 + en_passant_x);
         }
         hash ^= zobrist_en_passant[en_passant_x];
@@ -960,20 +937,20 @@ static void just_play_white_pawn(board_t * board, const play_t * play, int64_t *
 
         if (promotion_option == PROMOTION_QUEEN) {
             board->white_queens ^= to_mask;
-            hash = update_hash_with_piece_white(hash, to_p, 'Q');
+            hash = update_hash_with_piece(hash, to_p, 'Q');
         } else if (promotion_option == PROMOTION_KNIGHT) {
             board->white_knights ^= to_mask;
-            hash = update_hash_with_piece_white(hash, to_p, 'N');
+            hash = update_hash_with_piece(hash, to_p, 'N');
         } else if (promotion_option == PROMOTION_BISHOP) {
             board->white_bishops ^= to_mask;
-            hash = update_hash_with_piece_white(hash, to_p, 'B');
+            hash = update_hash_with_piece(hash, to_p, 'B');
         } else {
             board->white_rooks ^= to_mask;
-            hash = update_hash_with_piece_white(hash, to_p, 'R');
+            hash = update_hash_with_piece(hash, to_p, 'R');
         }
     } else {
         board->white_pawns ^= to_mask;
-        hash = update_hash_with_piece_white(hash, to_p, 'P');
+        hash = update_hash_with_piece(hash, to_p, 'P');
 
         if (from_y == 6 && to_y == 4) {
             board->en_passant_x = from_x;
@@ -1009,9 +986,9 @@ static void just_play_white_complex(board_t * board, const play_t * play, int64_
 
     int64_t hash = *out_hash;
 
-    hash = update_hash_with_piece_white(hash, from_p, from_piece);
+    hash = update_hash_with_piece(hash, from_p, from_piece);
     if (to_piece != ' ') {
-        hash = update_hash_with_piece_black(hash, to_p, to_piece);
+        hash = update_hash_with_piece(hash, to_p, to_piece);
     }
 
     int en_passant_x = board->en_passant_x;
@@ -1073,13 +1050,13 @@ static void just_play_white_complex(board_t * board, const play_t * play, int64_
             if (to_x == 6) {
                 board->white_rooks ^= (1ULL << (7 * 8 + 5));
                 board->white_rooks ^= (1ULL << (7 * 8 + 7));
-                hash = update_hash_with_piece_white(hash, 7 * 8 + 7, 'R');
-                hash = update_hash_with_piece_white(hash, 7 * 8 + 5, 'R');
+                hash = update_hash_with_piece(hash, 7 * 8 + 7, 'R');
+                hash = update_hash_with_piece(hash, 7 * 8 + 5, 'R');
             } else if (to_x == 2) {
                 board->white_rooks ^= (1ULL << (7 * 8 + 0));
                 board->white_rooks ^= (1ULL << (7 * 8 + 3));
-                hash = update_hash_with_piece_white(hash, 7 * 8 + 0, 'R');
-                hash = update_hash_with_piece_white(hash, 7 * 8 + 3, 'R');
+                hash = update_hash_with_piece(hash, 7 * 8 + 0, 'R');
+                hash = update_hash_with_piece(hash, 7 * 8 + 3, 'R');
             }
         }
 
@@ -1120,7 +1097,7 @@ static void just_play_white_complex(board_t * board, const play_t * play, int64_
         }
     }
 
-    hash = update_hash_with_piece_white(hash, to_p, from_piece);
+    hash = update_hash_with_piece(hash, to_p, from_piece);
 
     hash ^= zobrist_side_to_move;
 
@@ -1148,9 +1125,9 @@ static void just_play_black_pawn(board_t * board, const play_t * play, int64_t *
 
     int64_t hash = *out_hash;
 
-    hash = update_hash_with_piece_black(hash, from_p, from_piece);
+    hash = update_hash_with_piece(hash, from_p, from_piece);
     if (to_piece != ' ') {
-        hash = update_hash_with_piece_white(hash, to_p, to_piece);
+        hash = update_hash_with_piece(hash, to_p, to_piece);
     }
 
     hash ^= zobrist_side_to_move;
@@ -1184,7 +1161,7 @@ static void just_play_black_pawn(board_t * board, const play_t * play, int64_t *
 
     if (en_passant_x != NO_EN_PASSANT) {
         if (en_passant_x == to_x && from_y == 4) {
-            hash = update_hash_with_piece_white(hash, 4 * 8 + en_passant_x, 'P');
+            hash = update_hash_with_piece(hash, 4 * 8 + en_passant_x, 'P');
             board->white_pawns ^= 1ULL << (4 * 8 + en_passant_x);
         }
         hash ^= zobrist_en_passant[en_passant_x];
@@ -1206,20 +1183,20 @@ static void just_play_black_pawn(board_t * board, const play_t * play, int64_t *
 
         if (promotion_option == PROMOTION_QUEEN) {
             board->black_queens ^= to_mask;
-            hash = update_hash_with_piece_black(hash, to_p, 'q');
+            hash = update_hash_with_piece(hash, to_p, 'q');
         } else if (promotion_option == PROMOTION_KNIGHT) {
             board->black_knights ^= to_mask;
-            hash = update_hash_with_piece_black(hash, to_p, 'n');
+            hash = update_hash_with_piece(hash, to_p, 'n');
         } else if (promotion_option == PROMOTION_BISHOP) {
             board->black_bishops ^= to_mask;
-            hash = update_hash_with_piece_black(hash, to_p, 'b');
+            hash = update_hash_with_piece(hash, to_p, 'b');
         } else {
             board->black_rooks ^= to_mask;
-            hash = update_hash_with_piece_black(hash, to_p, 'r');
+            hash = update_hash_with_piece(hash, to_p, 'r');
         }
     } else {
         board->black_pawns ^= to_mask;
-        hash = update_hash_with_piece_black(hash, to_p, 'p');
+        hash = update_hash_with_piece(hash, to_p, 'p');
 
         if (from_y == 1 && to_y == 3) {
             board->en_passant_x = from_x;
@@ -1255,9 +1232,9 @@ static void just_play_black_complex(board_t * board, const play_t * play, int64_
 
     int64_t hash = *out_hash;
 
-    hash = update_hash_with_piece_black(hash, from_p, from_piece);
+    hash = update_hash_with_piece(hash, from_p, from_piece);
     if (to_piece != ' ') {
-        hash = update_hash_with_piece_white(hash, to_p, to_piece);
+        hash = update_hash_with_piece(hash, to_p, to_piece);
     }
 
     int en_passant_x = board->en_passant_x;
@@ -1319,13 +1296,13 @@ static void just_play_black_complex(board_t * board, const play_t * play, int64_
             if (to_x == 6) {
                 board->black_rooks ^= (1ULL << (0 * 8 + 5));
                 board->black_rooks ^= (1ULL << (0 * 8 + 7));
-                hash = update_hash_with_piece_black(hash, 0 * 8 + 7, 'r');
-                hash = update_hash_with_piece_black(hash, 0 * 8 + 5, 'r');
+                hash = update_hash_with_piece(hash, 0 * 8 + 7, 'r');
+                hash = update_hash_with_piece(hash, 0 * 8 + 5, 'r');
             } else if (to_x == 2) {
                 board->black_rooks ^= (1ULL << (0 * 8 + 0));
                 board->black_rooks ^= (1ULL << (0 * 8 + 3));
-                hash = update_hash_with_piece_black(hash, 0 * 8 + 0, 'r');
-                hash = update_hash_with_piece_black(hash, 0 * 8 + 3, 'r');
+                hash = update_hash_with_piece(hash, 0 * 8 + 0, 'r');
+                hash = update_hash_with_piece(hash, 0 * 8 + 3, 'r');
             }
         }
 
@@ -1366,7 +1343,7 @@ static void just_play_black_complex(board_t * board, const play_t * play, int64_
         }
     }
 
-    hash = update_hash_with_piece_black(hash, to_p, from_piece);
+    hash = update_hash_with_piece(hash, to_p, from_piece);
 
     hash ^= zobrist_side_to_move;
 
@@ -1402,6 +1379,8 @@ static void actual_play(board_t * board, board_ext_t * board_ext, const play_t *
     }
 }
 
+// Enumerates all apparently possible plays, disregarding pins to the kind and
+// castlting when attacked or through attacked squares.
 static int enumerate_all_possible_plays_white(play_t * valid_plays, const board_t * board, int captures_only) {
     int valid_plays_i = 0;
 
@@ -2318,13 +2297,26 @@ static uint64_t compute_pins(const board_t * board, int king_p, int own_color, u
 
 static int piece_value(char piece) {
     switch (piece) {
-        case 'P': case 'p': return PAWN_VALUE;
-        case 'N': case 'n': return KNIGHT_VALUE;
-        case 'B': case 'b': return BISHOP_VALUE;
-        case 'R': case 'r': return ROOK_VALUE;
-        case 'Q': case 'q': return QUEEN_VALUE;
-        case 'K': case 'k': return KING_VALUE;
-        default: return 0;
+        case 'P':
+        case 'p':
+            return PAWN_VALUE;
+        case 'N':
+        case 'n':
+            return KNIGHT_VALUE;
+        case 'R':
+        case 'r':
+            return ROOK_VALUE;
+        case 'B':
+        case 'b':
+            return BISHOP_VALUE;
+        case 'Q':
+        case 'q':
+            return QUEEN_VALUE;
+        case 'K':
+        case 'k':
+            return KING_VALUE;
+        default:
+            return 0;
     }
 }
 
@@ -2429,12 +2421,15 @@ static int static_exchange_eval(const board_t * board, const play_t * play, int 
     }
 
     while (--d > 0) {
-        gain[d - 1] = -MAX(-gain[d - 1], gain[d]);
+        int gain1 = -gain[d - 1];
+        int gain2 = gain[d];
+        gain[d - 1] = -MAX(gain1, gain2);
     }
 
     return gain[0];
 }
 
+// Enumerates all legal plays with the help of enumerate_all_possible_plays_*.
 static int enumerate_legal_plays_white(play_t * valid_plays, const board_t * board, int captures_only, int * out_in_check) {
     int valid_plays_i = 0;
     play_t valid_plays_local[218];
@@ -2844,14 +2839,12 @@ static int estimate_board_score(const board_t * board) {
     return score;
 }
 
-static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash);
-
 // Quiescence search. Reached from the frontier of the main search, it keeps resolving captures until
 // the position is quiet, so that estimate_board_score is never taken in the middle of a trade.
 // The side to move may always stop capturing and accept the static score; that score is the floor (for
 // white) or the ceiling (for black) of the node. The one exception is being in check, where doing nothing
 // is not legal: there every reply is searched, quiet ones included, and only the depth limit ends it.
-static int minimax_white_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+static int negamax_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (search_aborted || out_of_time()) {
         search_aborted = 1;
         return 0;
@@ -2862,6 +2855,10 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
+
+    int white_to_play = board->color == WHITE_COLOR;
+    int own_color = board->color;
+    int opponent_color = white_to_play ? BLACK_COLOR : WHITE_COLOR;
 
     // Quiescence nodes look at captures only, so whatever they return is worth no full play of
     // search and is stored at a draft of 0
@@ -2896,7 +2893,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     int beta_orig = beta;
 
     if (depth == max_depth) {
-        int score = estimate_board_score(board);
+        int score = white_to_play ? estimate_board_score(board) : -estimate_board_score(board);
 
         hash_table_insert(hash, pack_score(score, TYPE_EXACT), 0, 0);
         return score;
@@ -2907,7 +2904,9 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     play_t valid_plays[218];
 
     int in_check;
-    int valid_plays_i = enumerate_legal_plays_white(valid_plays, board, 1, &in_check);
+    int valid_plays_i = white_to_play
+        ? enumerate_legal_plays_white(valid_plays, board, 1, &in_check)
+        : enumerate_legal_plays_black(valid_plays, board, 1, &in_check);
 
     // Only a list holding every evasion can tell a mate from a quiet position. Without check
     // this one holds captures alone, and having none of them means nothing to take, not stalemate.
@@ -2939,7 +2938,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     if (in_check) {
         best_score = NO_SCORE;
     } else {
-        best_score = estimate_board_score(board);
+        best_score = white_to_play ? estimate_board_score(board) : -estimate_board_score(board);
 
         if (best_score >= beta) {
             hash_table_insert(hash, pack_score(best_score, TYPE_LOWER_BOUND), 0, 0);
@@ -2954,7 +2953,7 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
     for (int i = 0; i < valid_plays_i; ++i) {
         if (!in_check) {
             int to_p = valid_plays[i].to_y * 8 + valid_plays[i].to_x;
-            char victim = identify_piece_of(board, to_p, BLACK_COLOR);
+            char victim = identify_piece_of(board, to_p, opponent_color);
             int victim_value = piece_value(victim);
 
             // never worth a sacrifice this much bellow alpha
@@ -2963,8 +2962,8 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
                 continue;
             }
 
-            char attacker = identify_piece_of(board, valid_plays[i].from_y * 8 + valid_plays[i].from_x, WHITE_COLOR);
-            if (victim_value < piece_value(attacker) && static_exchange_eval(board, &valid_plays[i], 1) < 0) {
+            char attacker = identify_piece_of(board, valid_plays[i].from_y * 8 + valid_plays[i].from_x, own_color);
+            if (victim_value < piece_value(attacker) && static_exchange_eval(board, &valid_plays[i], white_to_play) < 0) {
                 continue;
             }
         }
@@ -2972,9 +2971,14 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
-        just_play_white_complex(&board_cpy, &valid_plays[i], &this_hash);
+        if (white_to_play) {
+            just_play_white_complex(&board_cpy, &valid_plays[i], &this_hash);
+        } else {
+            just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
+        }
 
-        int score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
+        int child = negamax_capture_only(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash);
+        int score = child == NO_SCORE ? NO_SCORE : -child;
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score > best_score) {
@@ -2985,157 +2989,6 @@ static int minimax_white_capture_only(const board_t * board, int depth, int max_
                 break;
             }
             alpha = MAX(alpha, best_score);
-        }
-    }
-
-    if (!search_aborted && best_score != NO_SCORE) {
-        int type;
-        if (best_score <= alpha_orig) {
-            type = TYPE_UPPER_BOUND;
-        } else if (best_score >= beta_orig) {
-            type = TYPE_LOWER_BOUND;
-        } else {
-            type = TYPE_EXACT;
-        }
-
-        hash_table_insert(hash, pack_score(score_to_hash(best_score, depth), type), draft, best_play);
-    }
-
-    return best_score;
-}
-
-static int minimax_black_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
-    if (search_aborted || out_of_time()) {
-        search_aborted = 1;
-        return 0;
-    }
-
-    search_history[search_history_count + depth] = hash;
-
-    if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
-        return DRAW_SCORE;
-    }
-
-    // Quiescence nodes look at captures only, so whatever they return is worth no full play of
-    // search and is stored at a draft of 0
-    int draft = 0;
-    int16_t tt_play = 0;
-
-    hash_table_entry_t * entry = hash_table_find(hash);
-    if (entry != 0) {
-        tt_play = entry->best_play;
-
-        // Only a search that still had at least as far to go as this one says anything about this
-        // node; a shallower entry keeps its play
-        if (entry->draft >= draft) {
-            int score = score_from_hash(unpack_score(entry->score_w_type), depth);
-            int type = entry->score_w_type & 3;
-
-            if (type == TYPE_EXACT) {
-                return score;
-            } else if (type == TYPE_LOWER_BOUND && score > alpha) {
-                alpha = score;
-            } else if (type == TYPE_UPPER_BOUND && score < beta) {
-                beta = score;
-            }
-
-            if (alpha >= beta) {
-                return score;
-            }
-        }
-    }
-
-    int alpha_orig = alpha;
-    int beta_orig = beta;
-
-    if (depth == max_depth) {
-        int score = estimate_board_score(board);
-
-        hash_table_insert(hash, pack_score(score, TYPE_EXACT), 0, 0);
-        return score;
-    }
-
-    board_t board_cpy;
-    play_t valid_plays[218];
-
-    int in_check;
-    int valid_plays_i = enumerate_legal_plays_black(valid_plays, board, 1, &in_check);
-
-    // Only a list holding every evasion can tell a mate from a quiet position. Without check
-    // this one holds captures alone, and having none of them means nothing to take, not stalemate.
-    if (in_check && valid_plays_i == 0) {
-        int score = MATE_SCORE - depth * 128;
-
-        // A finished game is worth the same however many plays were left to search, so this is
-        // the one result that can be stored at the greatest draft there is.
-        hash_table_insert(hash, pack_score(score_to_hash(score, depth), TYPE_EXACT), MAX_TOTAL_SEARCH_DEPTH, 0);
-        return score;
-    }
-
-    // The play that came out best the last time this position was searched goes first. A quiet
-    // one is simply not in this list unless the node is in check, and is then not looked for.
-    if (tt_play != 0) {
-        for (int i = 0; i < valid_plays_i; ++i) {
-            if (pack_play(&valid_plays[i]) == tt_play) {
-                play_t play_tmp = valid_plays[0];
-                valid_plays[0] = valid_plays[i];
-                valid_plays[i] = play_tmp;
-                break;
-            }
-        }
-    }
-
-    int best_score;
-    int16_t best_play = 0;
-
-    if (in_check) {
-        best_score = NO_SCORE;
-    } else {
-        best_score = estimate_board_score(board);
-
-        if (best_score <= alpha) {
-            hash_table_insert(hash, pack_score(best_score, TYPE_UPPER_BOUND), 0, 0);
-            return best_score;
-        }
-
-        beta = MIN(beta, best_score);
-    }
-
-    int stand_pat = best_score;
-
-    for (int i = 0; i < valid_plays_i; ++i) {
-        if (!in_check) {
-            int to_p = valid_plays[i].to_y * 8 + valid_plays[i].to_x;
-            char victim = identify_piece_of(board, to_p, WHITE_COLOR);
-            int victim_value = piece_value(victim);
-
-            if (victim != ' ' && valid_plays[i].promotion_option == 0
-                && stand_pat - victim_value - DELTA_MARGIN > beta) {
-                continue;
-            }
-
-            char attacker = identify_piece_of(board, valid_plays[i].from_y * 8 + valid_plays[i].from_x, BLACK_COLOR);
-            if (victim_value < piece_value(attacker) && static_exchange_eval(board, &valid_plays[i], 0) < 0) {
-                continue;
-            }
-        }
-
-        memcpy(&board_cpy, board, sizeof(board_t));
-        int64_t this_hash = hash;
-
-        just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
-
-        int score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
-
-        if (score != NO_SCORE) {
-            if (best_score == NO_SCORE || score < best_score) {
-                best_score = score;
-                best_play = pack_play(&valid_plays[i]);
-            }
-            if (best_score <= alpha) {
-                break;
-            }
-            beta = MIN(beta, best_score);
         }
     }
 
@@ -3180,9 +3033,7 @@ static void record_quiet_cutoff(int color_index, int depth, const play_t * play,
     }
 }
 
-static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash);
-
-static int minimax_white(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+static int negamax(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (search_aborted || out_of_time()) {
         search_aborted = 1;
         return 0;
@@ -3193,6 +3044,10 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
         return DRAW_SCORE;
     }
+
+    int white_to_play = board->color == WHITE_COLOR;
+    int opponent_color = white_to_play ? BLACK_COLOR : WHITE_COLOR;
+    int color_index = white_to_play ? 0 : 1;
 
     // How many plays this node still has to search below it, which is what its score is worth.
     int draft = max_depth - depth;
@@ -3226,7 +3081,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     int beta_orig = beta;
 
     if (depth == max_depth) {
-        int score = estimate_board_score(board);
+        int score = white_to_play ? estimate_board_score(board) : -estimate_board_score(board);
 
         hash_table_insert(hash, pack_score(score, TYPE_EXACT), 0, 0);
         return score;
@@ -3238,7 +3093,9 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     char captures[218];
 
     int in_check;
-    int valid_plays_i = enumerate_legal_plays_white(valid_plays, board, 0, &in_check);
+    int valid_plays_i = white_to_play
+        ? enumerate_legal_plays_white(valid_plays, board, 0, &in_check)
+        : enumerate_legal_plays_black(valid_plays, board, 0, &in_check);
     if (valid_plays_i == 0) {
         int score = in_check ? -MATE_SCORE + depth * 128 : DRAW_SCORE;
 
@@ -3271,7 +3128,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
     // captures[] is filled in as the loop reaches each play and not before, so that a cut on an
     // early one leaves the rest of the list untouched.
     for (int i = 0; i < valid_plays_i; ++i) {
-        captures[i] = identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, BLACK_COLOR) != ' ';
+        captures[i] = identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, opponent_color) != ' ';
         if (i == 0 && tt_play_first) {
             // Taken here whether it is a capture or not, and marked so the quiet pass skips it.
             captures[0] = 1;
@@ -3282,14 +3139,19 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
         memcpy(&board_cpy, board, sizeof(board_t));
         int64_t this_hash = hash;
 
-        just_play_white_complex(&board_cpy, &valid_plays[i], &this_hash);
-
-        int score;
-        if (depth + 1 == max_depth) {
-            score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
+        if (white_to_play) {
+            just_play_white_complex(&board_cpy, &valid_plays[i], &this_hash);
         } else {
-            score = minimax_black(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
+            just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
         }
+
+        int child;
+        if (depth + 1 == max_depth) {
+            child = negamax_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -alpha, this_hash);
+        } else {
+            child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash);
+        }
+        int score = child == NO_SCORE ? NO_SCORE : -child;
 
         if (score != NO_SCORE) {
             if (best_score == NO_SCORE || score > best_score) {
@@ -3297,8 +3159,8 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
                 best_play = pack_play(&valid_plays[i]);
             }
             if (score >= beta) {
-                if (identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, BLACK_COLOR) == ' ') {
-                    record_quiet_cutoff(0, depth, &valid_plays[i], draft);
+                if (identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, opponent_color) == ' ') {
+                    record_quiet_cutoff(color_index, depth, &valid_plays[i], draft);
                 }
                 breakfor = 1;
                 break;
@@ -3320,7 +3182,7 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
             } else if (packed == killers[depth][1]) {
                 quiet_score[i] = KILLER_SECOND;
             } else {
-                quiet_score[i] = history[0][valid_plays[i].from_y * 8 + valid_plays[i].from_x][valid_plays[i].to_y * 8 + valid_plays[i].to_x];
+                quiet_score[i] = history[color_index][valid_plays[i].from_y * 8 + valid_plays[i].from_x][valid_plays[i].to_y * 8 + valid_plays[i].to_x];
             }
         }
 
@@ -3344,17 +3206,22 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = hash;
 
-            just_play_white_complex(&board_cpy, &valid_plays[i], &this_hash);
+            if (white_to_play) {
+                just_play_white_complex(&board_cpy, &valid_plays[i], &this_hash);
+            } else {
+                just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
+            }
 
             // A quiet move at the frontier hands off to the quiescence search exactly like a
             // capture does: it can just as easily leave a piece hanging, and taking the static
             // score there instead is what let the search walk into losing one.
-            int score;
+            int child;
             if (depth + 1 == max_depth) {
-                score = minimax_black_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
+                child = negamax_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -alpha, this_hash);
             } else {
-                score = minimax_black(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
+                child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash);
             }
+            int score = child == NO_SCORE ? NO_SCORE : -child;
 
             if (score != NO_SCORE) {
                 if (best_score == NO_SCORE || score > best_score) {
@@ -3362,213 +3229,10 @@ static int minimax_white(const board_t * board, int depth, int max_depth, int al
                     best_play = pack_play(&valid_plays[i]);
                 }
                 if (score >= beta) {
-                    record_quiet_cutoff(0, depth, &valid_plays[i], draft);
+                    record_quiet_cutoff(color_index, depth, &valid_plays[i], draft);
                     break;
                 }
                 alpha = MAX(alpha, score);
-            }
-        }
-    }
-
-    if (!search_aborted && best_score != NO_SCORE) {
-        int type;
-        if (best_score <= alpha_orig) {
-            type = TYPE_UPPER_BOUND;
-        } else if (best_score >= beta_orig) {
-            type = TYPE_LOWER_BOUND;
-        } else {
-            type = TYPE_EXACT;
-        }
-
-        hash_table_insert(hash, pack_score(score_to_hash(best_score, depth), type), draft, best_play);
-    }
-
-    return best_score;
-}
-
-static int minimax_black(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
-    if (search_aborted || out_of_time()) {
-        search_aborted = 1;
-        return 0;
-    }
-
-    search_history[search_history_count + depth] = hash;
-
-    if (is_repetition(hash, depth, board->halfmoves) || board->halfmoves >= 100 || insufficient_material(board)) {
-        return DRAW_SCORE;
-    }
-
-    // How many plays this node still has to search below it, which is what its score is worth.
-    int draft = max_depth - depth;
-    int16_t tt_play = 0;
-
-    hash_table_entry_t * entry = hash_table_find(hash);
-    if (entry != 0) {
-        tt_play = entry->best_play;
-
-        // Only a search that still had at least as far to go as this one says anything about this
-        // node; a shallower entry keeps its play
-        if (entry->draft >= draft) {
-            int score = score_from_hash(unpack_score(entry->score_w_type), depth);
-            int type = entry->score_w_type & 3;
-
-            if (type == TYPE_EXACT) {
-                return score;
-            } else if (type == TYPE_LOWER_BOUND && score > alpha) {
-                alpha = score;
-            } else if (type == TYPE_UPPER_BOUND && score < beta) {
-                beta = score;
-            }
-
-            if (alpha >= beta) {
-                return score;
-            }
-        }
-    }
-
-    int alpha_orig = alpha;
-    int beta_orig = beta;
-
-    if (depth == max_depth) {
-        int score = estimate_board_score(board);
-
-        hash_table_insert(hash, pack_score(score, TYPE_EXACT), 0, 0);
-        return score;
-    }
-
-    board_t board_cpy;
-    play_t valid_plays[218];
-    char captures[218];
-
-    int in_check;
-    int valid_plays_i = enumerate_legal_plays_black(valid_plays, board, 0, &in_check);
-    if (valid_plays_i == 0) {
-        int score = in_check ? MATE_SCORE - depth * 128 : DRAW_SCORE;
-
-        // A finished game is worth the same however many plays were left to search, so this is
-        // the one result that can be stored at the greatest draft there is.
-        hash_table_insert(hash, pack_score(score_to_hash(score, depth), TYPE_EXACT), MAX_TOTAL_SEARCH_DEPTH, 0);
-        return score;
-    }
-
-    int best_score = NO_SCORE;
-    int16_t best_play = 0;
-    int breakfor = 0;
-
-    // The play that came out best the last time this position was searched, however shallowly, is
-    // the best guess there is and costs nothing to make: it goes ahead of even the captures,
-    // because a first play good enough to cut cancels the whole rest of the list.
-    int tt_play_first = 0;
-    if (tt_play != 0) {
-        for (int i = 0; i < valid_plays_i; ++i) {
-            if (pack_play(&valid_plays[i]) == tt_play) {
-                play_t play_tmp = valid_plays[0];
-                valid_plays[0] = valid_plays[i];
-                valid_plays[i] = play_tmp;
-                tt_play_first = 1;
-                break;
-            }
-        }
-    }
-
-    // captures[] is filled in as the loop reaches each play and not before, so that a cut on an
-    // early one leaves the rest of the list untouched.
-    for (int i = 0; i < valid_plays_i; ++i) {
-        captures[i] = identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, WHITE_COLOR) != ' ';
-        if (i == 0 && tt_play_first) {
-            // Taken here whether it is a capture or not, and marked so the quiet pass skips it.
-            captures[0] = 1;
-        } else if (!captures[i]) {
-            continue;
-        }
-
-        memcpy(&board_cpy, board, sizeof(board_t));
-        int64_t this_hash = hash;
-
-        just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
-
-        int score;
-        if (depth + 1 == max_depth) {
-            score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
-        } else {
-            score = minimax_white(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
-        }
-
-        if (score != NO_SCORE) {
-            if (best_score == NO_SCORE || score < best_score) {
-                best_score = score;
-                best_play = pack_play(&valid_plays[i]);
-            }
-            if (score <= alpha) {
-                if (identify_piece_of(board, valid_plays[i].to_y * 8 + valid_plays[i].to_x, WHITE_COLOR) == ' ') {
-                    record_quiet_cutoff(1, depth, &valid_plays[i], draft);
-                }
-                breakfor = 1;
-                break;
-            }
-            beta = MIN(beta, score);
-        }
-    }
-
-    if (!breakfor) {
-        int quiet_score[218];
-        for (int i = 0; i < valid_plays_i; ++i) {
-            if (captures[i]) {
-                continue;
-            }
-
-            int16_t packed = pack_play(&valid_plays[i]);
-            if (packed == killers[depth][0]) {
-                quiet_score[i] = KILLER_FIRST;
-            } else if (packed == killers[depth][1]) {
-                quiet_score[i] = KILLER_SECOND;
-            } else {
-                quiet_score[i] = history[1][valid_plays[i].from_y * 8 + valid_plays[i].from_x][valid_plays[i].to_y * 8 + valid_plays[i].to_x];
-            }
-        }
-
-        while (1) {
-            // Picked as the loop reaches it rather than sorted up front, so a cut on the first
-            // one costs a single pass. captures[] marks a play as taken.
-            int i = -1;
-            for (int j = 0; j < valid_plays_i; ++j) {
-                if (captures[j]) {
-                    continue;
-                }
-                if (i == -1 || quiet_score[j] > quiet_score[i]) {
-                    i = j;
-                }
-            }
-            if (i == -1) {
-                break;
-            }
-            captures[i] = 1;
-
-            memcpy(&board_cpy, board, sizeof(board_t));
-            int64_t this_hash = hash;
-
-            just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
-
-            // A quiet move at the frontier hands off to the quiescence search exactly like a
-            // capture does: it can just as easily leave a piece hanging, and taking the static
-            // score there instead is what let the search walk into losing one.
-            int score;
-            if (depth + 1 == max_depth) {
-                score = minimax_white_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, alpha, beta, this_hash);
-            } else {
-                score = minimax_white(&board_cpy, depth + 1, max_depth, alpha, beta, this_hash);
-            }
-
-            if (score != NO_SCORE) {
-                if (best_score == NO_SCORE || score < best_score) {
-                    best_score = score;
-                    best_play = pack_play(&valid_plays[i]);
-                }
-                if (score <= alpha) {
-                    record_quiet_cutoff(1, depth, &valid_plays[i], draft);
-                    break;
-                }
-                beta = MIN(beta, score);
             }
         }
     }
@@ -3663,7 +3327,7 @@ static void send_search_info(int depth, int score, const play_t * play) {
         return;
     }
 
-    int value = board.color == WHITE_COLOR ? score : -score;
+    int value = score;
     char score_str[32];
 
     if (value > MATE_THRESHOLD || value < -MATE_THRESHOLD) {
@@ -3677,12 +3341,12 @@ static void send_search_info(int depth, int score, const play_t * play) {
     char play_str[8];
     format_play_uci(play_str, play);
 
-    long elapsed = search_elapsed_ms();
-    unsigned long long nps = elapsed > 0 ? (search_nodes * 1000ULL) / (unsigned long long)elapsed : 0ULL;
+    long int elapsed = search_elapsed_ms();
+    unsigned long long int nps = elapsed > 0 ? (search_nodes * 1000ULL) / (unsigned long long int)elapsed : 0ULL;
 
     char line[256];
     sprintf(line, "info depth %d score %s nodes %llu nps %llu time %ld pv %s",
-        depth, score_str, (unsigned long long)search_nodes, nps, elapsed, play_str);
+        depth, score_str, (unsigned long long int)search_nodes, nps, elapsed, play_str);
 
     send_uci_command(uci_log, line);
 }
@@ -3756,31 +3420,19 @@ static int ai_play(play_t * play) {
                 just_play_black_complex(&board_cpy, &valid_plays[i], &child_hash);
             }
 
-            int score;
-            if (board_cpy.color == WHITE_COLOR) {
-                score = minimax_white(&board_cpy, 0, max_depth, alpha, beta, child_hash);
-            } else {
-                score = minimax_black(&board_cpy, 0, max_depth, alpha, beta, child_hash);
-            }
+            int child = negamax(&board_cpy, 0, max_depth, -beta, -alpha, child_hash);
+            int score = child == NO_SCORE ? NO_SCORE : -child;
 
             if (search_aborted) {
                 break;
             }
 
             if (score != NO_SCORE) {
-                if (board.color == WHITE_COLOR) {
-                    if (iter_score == NO_SCORE || score > iter_score) {
-                        iter_score = score;
-                        iter_play = i;
-                    }
-                    alpha = MAX(alpha, score);
-                } else {
-                    if (iter_score == NO_SCORE || score < iter_score) {
-                        iter_score = score;
-                        iter_play = i;
-                    }
-                    beta = MIN(beta, score);
+                if (iter_score == NO_SCORE || score > iter_score) {
+                    iter_score = score;
+                    iter_play = i;
                 }
+                alpha = MAX(alpha, score);
             }
         }
 
@@ -4111,7 +3763,7 @@ static FILE * init_log_file(const char * program_name) {
 }
 
 // Value of a "name N" pair in a go command, or -1 when the command does not carry it.
-static long read_go_option(const char * cmd, const char * name) {
+static long int read_go_option(const char * cmd, const char * name) {
     char key[32];
     sprintf(key, " %s ", name);
 
@@ -4127,15 +3779,15 @@ static void set_search_limits(const char * cmd) {
     search_depth_limit = DEFAULT_SEARCH_DEPTH;
     search_budget_ms = 0;
 
-    long depth = read_go_option(cmd, "depth");
-    long movetime = read_go_option(cmd, "movetime");
-    long my_time = read_go_option(cmd, board.color == WHITE_COLOR ? "wtime" : "btime");
-    long my_increment = read_go_option(cmd, board.color == WHITE_COLOR ? "winc" : "binc");
-    long movestogo = read_go_option(cmd, "movestogo");
+    long int depth = read_go_option(cmd, "depth");
+    long int movetime = read_go_option(cmd, "movetime");
+    long int my_time = read_go_option(cmd, board.color == WHITE_COLOR ? "wtime" : "btime");
+    long int my_increment = read_go_option(cmd, board.color == WHITE_COLOR ? "winc" : "binc");
+    long int movestogo = read_go_option(cmd, "movestogo");
 
     // "go infinite" is deliberately not honoured: without a "stop" command to end it
     if (depth > 0) {
-        search_depth_limit = (int)MIN(depth, (long)MAX_SEARCH_DEPTH);
+        search_depth_limit = (int)MIN(depth, (long int)MAX_SEARCH_DEPTH);
     } else if (movetime > 0) {
         search_depth_limit = MAX_SEARCH_DEPTH;
         search_budget_ms = movetime;
@@ -4147,7 +3799,8 @@ static void set_search_limits(const char * cmd) {
     }
 
     if (search_budget_ms != 0 && my_time > 0 && search_budget_ms > my_time - 50) {
-        search_budget_ms = MAX(my_time - 50, 10);
+        long int my_time2 = my_time - 50;
+        search_budget_ms = MAX(my_time2, 10);
     }
 }
 
@@ -4325,8 +3978,8 @@ static void init_randomness() {
 }
 
 int main(int argc, char * argv[]) {
-    set_program_dir(argv[0]);
     init_randomness();
+    set_program_dir(argv[0]);
     populate_pawn_capture_masks();
     populate_knight_moves_masks();
     populate_king_moves_masks();
