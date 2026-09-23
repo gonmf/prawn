@@ -34,7 +34,7 @@ Usage:
 
 static uint64_t perft(const board_t * board, int depth) {
     play_t valid_plays[218];
-    int valid_plays_i = enumerate_legal_plays(valid_plays, board);
+    int valid_plays_i = enumerate_legal_plays(valid_plays, board, 0, NULL);
 
     if (depth <= 1) {
         return (uint64_t)valid_plays_i;
@@ -74,7 +74,7 @@ static void format_play(char * dest, const play_t * play) {
 
 static void perft_divide(const board_t * board, int depth) {
     play_t valid_plays[218];
-    int valid_plays_i = enumerate_legal_plays(valid_plays, board);
+    int valid_plays_i = enumerate_legal_plays(valid_plays, board, 0, NULL);
     board_t board_cpy;
     uint64_t total = 0;
     char play_str[8];
