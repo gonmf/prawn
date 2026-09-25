@@ -2406,7 +2406,7 @@ static int estimate_board_score(const board_t * board) {
 static int negamax_capture_only(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
     if (search_aborted || out_of_time()) {
         search_aborted = 1;
-        return 0;
+        return NO_SCORE;
     }
 
     search_history[search_history_count + depth] = hash;
@@ -2590,10 +2590,18 @@ static void record_quiet_cutoff(int color_index, int depth, const play_t * play,
     }
 }
 
-static int negamax(const board_t * board, int depth, int max_depth, int alpha, int beta, int64_t hash) {
+static int negamax(
+    const board_t * board,
+    int depth,
+    int max_depth,
+    int alpha,
+    int beta,
+    int64_t hash,
+    int can_null_prune
+) {
     if (search_aborted || out_of_time()) {
         search_aborted = 1;
-        return 0;
+        return NO_SCORE;
     }
 
     search_history[search_history_count + depth] = hash;
@@ -2660,6 +2668,32 @@ static int negamax(const board_t * board, int depth, int max_depth, int alpha, i
         return score;
     }
 
+    if (can_null_prune && !in_check && draft >= 3 && beta < MATE_THRESHOLD && (white_to_play
+            ? (board->white_knights | board->white_bishops | board->white_rooks | board->white_queens)
+            : (board->black_knights | board->black_bishops | board->black_rooks | board->black_queens))) {
+        board_t null_board;
+        memcpy(&null_board, board, sizeof(board_t));
+        null_board.color = opponent_color;
+        null_board.en_passant_x = NO_EN_PASSANT;
+
+        int64_t null_hash = hash ^ zobrist_side_to_move;
+        if (board->en_passant_x != NO_EN_PASSANT) {
+            null_hash ^= zobrist_en_passant[(int)(board->en_passant_x)];
+        }
+
+        int null_max_depth = max_depth - NULL_MOVE_REDUCTION;
+        int child;
+        if (depth + 1 == null_max_depth) {
+            child = negamax_capture_only(&null_board, depth + 1, null_max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -beta + 1, null_hash);
+        } else {
+            child = negamax(&null_board, depth + 1, null_max_depth, -beta, -beta + 1, null_hash, 0);
+        }
+
+        if (child != NO_SCORE && -child >= beta) {
+            return -child;
+        }
+    }
+
     int best_score = NO_SCORE;
     int16_t best_play = 0;
     int breakfor = 0;
@@ -2704,7 +2738,7 @@ static int negamax(const board_t * board, int depth, int max_depth, int alpha, i
         if (depth + 1 == max_depth) {
             child = negamax_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -alpha, this_hash);
         } else {
-            child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash);
+            child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash, 1);
         }
         int score = child == NO_SCORE ? NO_SCORE : -child;
 
@@ -2774,7 +2808,7 @@ static int negamax(const board_t * board, int depth, int max_depth, int alpha, i
             if (depth + 1 == max_depth) {
                 child = negamax_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -alpha, this_hash);
             } else {
-                child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash);
+                child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash, 1);
             }
             int score = child == NO_SCORE ? NO_SCORE : -child;
 
@@ -2975,7 +3009,7 @@ static int ai_play(play_t * play) {
                 just_play_black_complex(&board_cpy, &valid_plays[i], &child_hash);
             }
 
-            int child = negamax(&board_cpy, 0, max_depth, -beta, -alpha, child_hash);
+            int child = negamax(&board_cpy, 0, max_depth, -beta, -alpha, child_hash, 1);
             int score = child == NO_SCORE ? NO_SCORE : -child;
 
             if (search_aborted) {

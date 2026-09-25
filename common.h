@@ -86,6 +86,10 @@ typedef struct {
 #define MAX_TOTAL_SEARCH_DEPTH (MAX_SEARCH_DEPTH + QUIESCENCE_EXTRA_DEPTH)
 #define HASH_TABLE_BUCKET 4
 
+#ifndef NULL_MOVE_REDUCTION
+#define NULL_MOVE_REDUCTION 2
+#endif
+
 // 4 MB at depth 5, 64 MB at depth 6 and 256 MB at depth 7 and above
 #ifndef HASH_TABLE_BITS
 #define HASH_TABLE_BITS_FOR_DEPTH (3 * DEFAULT_SEARCH_DEPTH + 3)
