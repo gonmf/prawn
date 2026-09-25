@@ -22,7 +22,6 @@ Things planned for development, in no specific order.
 
 ## Search
 
-- Late move reductions/pruning
 - Principal variation search
 - Aspiration windows
 - Reverse futility / static null move

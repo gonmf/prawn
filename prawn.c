@@ -2775,6 +2775,8 @@ static int negamax(
             }
         }
 
+        int quiets_tried = 0; // for LMR
+
         while (1) {
             // Picked as the loop reaches it rather than sorted up front, so a cut on the first
             // one costs a single pass. captures[] marks a play as taken.
@@ -2791,6 +2793,7 @@ static int negamax(
                 break;
             }
             captures[i] = 1;
+            quiets_tried++;
 
             memcpy(&board_cpy, board, sizeof(board_t));
             int64_t this_hash = hash;
@@ -2801,15 +2804,41 @@ static int negamax(
                 just_play_black_complex(&board_cpy, &valid_plays[i], &this_hash);
             }
 
-            // A quiet move at the frontier hands off to the quiescence search exactly like a
-            // capture does: it can just as easily leave a piece hanging, and taking the static
-            // score there instead is what let the search walk into losing one.
-            int child;
-            if (depth + 1 == max_depth) {
-                child = negamax_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -alpha, this_hash);
-            } else {
-                child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash, 1);
+            // Ordering has already put the plays worth searching first, so the ones this far down
+            // the list are searched short and only at a window wide enough to tell whether they
+            // beat alpha. One that does is not trusted: it is searched again at full depth.
+            int depth_subtracted = 0;
+            if (!in_check && draft >= 3 && quiets_tried > LMR_MIN_PLAYS) {
+                depth_subtracted = quiets_tried > LMR_MIN_PLAYS + 4 ? 2 : 1;
+                if (depth_subtracted > draft - 1) {
+                    depth_subtracted = draft - 1;
+                }
             }
+
+            int child;
+            if (depth_subtracted > 0) {
+                int reduced_max = max_depth - depth_subtracted;
+                if (depth + 1 == reduced_max) {
+                    child = negamax_capture_only(&board_cpy, depth + 1, reduced_max + QUIESCENCE_EXTRA_DEPTH, -alpha - 1, -alpha, this_hash);
+                } else {
+                    child = negamax(&board_cpy, depth + 1, reduced_max, -alpha - 1, -alpha, this_hash, 1);
+                }
+
+                if (child != NO_SCORE && -child > alpha) {
+                    depth_subtracted = 0;
+                }
+            }
+
+            // A quiet move at the frontier hands off to the quiescence search exactly like a
+            // capture does: it can just as easily leave a piece hanging.
+            if (depth_subtracted == 0) {
+                if (depth + 1 == max_depth) {
+                    child = negamax_capture_only(&board_cpy, depth + 1, max_depth + QUIESCENCE_EXTRA_DEPTH, -beta, -alpha, this_hash);
+                } else {
+                    child = negamax(&board_cpy, depth + 1, max_depth, -beta, -alpha, this_hash, 1);
+                }
+            }
+
             int score = child == NO_SCORE ? NO_SCORE : -child;
 
             if (score != NO_SCORE) {
@@ -3381,10 +3410,9 @@ static void set_search_limits(const char * cmd) {
         search_depth_limit = MAX_SEARCH_DEPTH;
         search_budget_ms = movetime;
     } else if (my_time > 0) {
-        // With no movestogo the game is assumed to have about 30 moves left in it, which is what
-        // keeps the early moves from eating a clock the endgame still needs.
+        // we simply assume we have always 28 moves to as a way to smooth the time spent curve
         search_depth_limit = MAX_SEARCH_DEPTH;
-        search_budget_ms = my_time / (movestogo > 0 ? movestogo : 30) + (my_increment > 0 ? my_increment * 3 / 4 : 0);
+        search_budget_ms = my_time / (movestogo > 0 ? movestogo : 28) + (my_increment > 0 ? my_increment * 3 / 4 : 0);
     }
 
     if (search_budget_ms != 0 && my_time > 0 && search_budget_ms > my_time - 50) {

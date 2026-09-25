@@ -90,6 +90,11 @@ typedef struct {
 #define NULL_MOVE_REDUCTION 2
 #endif
 
+// Quiet plays searched at full depth before reductions start.
+#ifndef LMR_MIN_PLAYS
+#define LMR_MIN_PLAYS 3
+#endif
+
 // 4 MB at depth 5, 64 MB at depth 6 and 256 MB at depth 7 and above
 #ifndef HASH_TABLE_BITS
 #define HASH_TABLE_BITS_FOR_DEPTH (3 * DEFAULT_SEARCH_DEPTH + 3)

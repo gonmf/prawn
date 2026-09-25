@@ -3,11 +3,10 @@
 [![lichess-bullet](https://lichess-shield.vercel.app/api?username=prawn_bot&format=bullet)](https://lichess.org/@/prawn_bot/perf/bullet)
 [![lichess-blitz](https://lichess-shield.vercel.app/api?username=prawn_bot&format=blitz)](https://lichess.org/@/prawn_bot/perf/blitz)
 [![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=rapid)](https://lichess.org/@/prawn_bot/perf/rapid)
-[![lichess-classical](https://lichess-shield.vercel.app/api?username=prawn_bot&format=classical)](https://lichess.org/@/prawn_bot/perf/classical)
 
 A small but strong single-threaded chess program. [Challenge it to a game on lichess](https://lichess.org/@/prawn_bot).
 
-**prawn** performs alpha-beta pruning with iterative deepening for timed play with quiescence search at the leafs, with delta, SEE and null-move pruning. Move generation uses precomputed attack masks and bitwise operations. A transposition table is also used with Zobrist hashing, incremental hash updates. It uses a simple material evaluator with mid/endgame tables and some nudges for endgame play (no endgame tables yet).
+**prawn** performs alpha-beta pruning with iterative deepening for timed play with quiescence search at the leafs, with delta, SEE, null-move and LMR pruning. Move generation is sorted and uses precomputed attack masks and bitwise operations. A transposition table is also used with Zobrist hashing, incremental hash updates. It uses a simple material evaluator with mid/endgame tables and some nudges for endgame play (no endgame tables yet).
 
 It understands FEN notation, moves in long algebraic notation, and its own format of simple opening books. It has a text interface supporting self-play and play against a human, and it speaks the UCI protocol for external graphical interfaces and timed play.
 
