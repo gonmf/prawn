@@ -1,8 +1,9 @@
 # prawn 🦐
 
-[![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=bullet)](https://lichess.org/@/prawn_bot/perf/bullet)
-[![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=blitz)](https://lichess.org/@/prawn_bot/perf/blitz)
+[![lichess-bullet](https://lichess-shield.vercel.app/api?username=prawn_bot&format=bullet)](https://lichess.org/@/prawn_bot/perf/bullet)
+[![lichess-blitz](https://lichess-shield.vercel.app/api?username=prawn_bot&format=blitz)](https://lichess.org/@/prawn_bot/perf/blitz)
 [![lichess-rapid](https://lichess-shield.vercel.app/api?username=prawn_bot&format=rapid)](https://lichess.org/@/prawn_bot/perf/rapid)
+[![lichess-classical](https://lichess-shield.vercel.app/api?username=prawn_bot&format=classical)](https://lichess.org/@/prawn_bot/perf/classical)
 
 A small but strong single-threaded chess program. [Challenge it to a game on lichess](https://lichess.org/@/prawn_bot).
 
