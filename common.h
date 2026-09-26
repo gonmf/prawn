@@ -103,6 +103,10 @@ typedef struct {
 // Held back from the clock for the move to reach the other end.
 #define TIME_MOVE_OVERHEAD_MS 100
 
+// Added to the soft limit, as a percentage, while the search has not settled on an answer.
+#define TIME_UNSTABLE_EXTRA 50
+#define TIME_DROP_THRESHOLD 50
+
 // Growth from one iteration to the next, as a percentage, measured but pulled towards a prior.
 #ifndef TIME_RATIO_PRIOR
 #define TIME_RATIO_PRIOR 250

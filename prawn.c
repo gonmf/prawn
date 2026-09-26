@@ -2984,6 +2984,19 @@ static long int predicted_iteration_ms(const long int * iter_ms, int depth) {
     return iter_ms[depth] * ratio / 100;
 }
 
+static long int time_allowance(int changed, int score_drop) {
+    long int factor = 100;
+
+    if (changed) {
+        factor += TIME_UNSTABLE_EXTRA;
+    }
+    if (score_drop > TIME_DROP_THRESHOLD) {
+        factor += MIN(score_drop, 400) / 8;
+    }
+
+    return MIN(search_soft_ms * factor / 100, search_budget_ms);
+}
+
 static int ai_play(play_t * play) {
     if (opening_book_enabled) {
         uint64_t board_hash = hash_from_board(&board);
@@ -3007,6 +3020,12 @@ static int ai_play(play_t * play) {
         } else {
             return DRAW;
         }
+    }
+
+    if (valid_plays_i == 1) {
+        actual_play(&board, &board_ext, &valid_plays[0]);
+        *play = valid_plays[0];
+        return 1;
     }
 
     ++hash_table_age;
@@ -3076,6 +3095,9 @@ static int ai_play(play_t * play) {
             break;
         }
 
+        int changed = iter_play != 0;
+        int score_drop = best_score == NO_SCORE ? 0 : best_score - iter_score;
+
         best_score = iter_score;
         iter_ms[max_depth] = search_elapsed_ms();
 
@@ -3095,7 +3117,8 @@ static int ai_play(play_t * play) {
 
         // Starting an iteration there is no chance of finishing spends the rest of the budget on a
         // result that gets thrown away.
-        if (search_soft_ms != 0 && predicted_iteration_ms(iter_ms, max_depth) > search_soft_ms) {
+        if (search_soft_ms != 0 && predicted_iteration_ms(iter_ms, max_depth)
+                > time_allowance(changed, score_drop)) {
             break;
         }
     }
