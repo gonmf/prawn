@@ -58,6 +58,7 @@ static int64_t search_history[MAX_GAME_PLAYS + MAX_TOTAL_SEARCH_DEPTH + 4];
 static int search_history_count;
 
 static struct timeval search_start;
+static long int search_soft_ms;
 static long int search_budget_ms;
 static int search_depth_limit = DEFAULT_SEARCH_DEPTH;
 static int search_aborted;
@@ -2969,6 +2970,20 @@ static void send_search_info(int depth, int score, const play_t * play) {
     send_uci_command(uci_log, line);
 }
 
+static long int predicted_iteration_ms(const long int * iter_ms, int depth) {
+    long int ratio = TIME_RATIO_PRIOR;
+
+    // Odd and even iterations do not cost the same, the side to move at the leaf alternating
+    // between them, so what the next one will cost is read from two back and not from the last.
+    if (depth >= 3 && iter_ms[depth - 2] >= 20) {
+        ratio = iter_ms[depth - 1] * 100 / iter_ms[depth - 2];
+        ratio = MIN(MAX(ratio, (long int)TIME_RATIO_MIN), (long int)TIME_RATIO_MAX);
+        ratio = (ratio * 7 + TIME_RATIO_PRIOR * 3) / 10;
+    }
+
+    return iter_ms[depth] * ratio / 100;
+}
+
 static int ai_play(play_t * play) {
     if (opening_book_enabled) {
         uint64_t board_hash = hash_from_board(&board);
@@ -3017,6 +3032,7 @@ static int ai_play(play_t * play) {
     search_aborted = 0;
     search_nodes = 0;
 
+    long int iter_ms[MAX_SEARCH_DEPTH + 1];
     int best_score = NO_SCORE;
 
     for (int max_depth = 1; max_depth <= search_depth_limit; ++max_depth) {
@@ -3061,6 +3077,7 @@ static int ai_play(play_t * play) {
         }
 
         best_score = iter_score;
+        iter_ms[max_depth] = search_elapsed_ms();
 
         // We lead the next iteration with this one's best play for the most gain of searching by
         // increasing depth comes from.
@@ -3078,7 +3095,7 @@ static int ai_play(play_t * play) {
 
         // Starting an iteration there is no chance of finishing spends the rest of the budget on a
         // result that gets thrown away.
-        if (search_budget_ms != 0 && search_elapsed_ms() * 3 >= search_budget_ms) {
+        if (search_soft_ms != 0 && predicted_iteration_ms(iter_ms, max_depth) > search_soft_ms) {
             break;
         }
     }
@@ -3396,6 +3413,7 @@ static long int read_go_option(const char * cmd, const char * name) {
 static void set_search_limits(const char * cmd) {
     search_depth_limit = DEFAULT_SEARCH_DEPTH;
     search_budget_ms = 0;
+    search_soft_ms = 0;
 
     long int depth = read_go_option(cmd, "depth");
     long int movetime = read_go_option(cmd, "movetime");
@@ -3408,16 +3426,27 @@ static void set_search_limits(const char * cmd) {
         search_depth_limit = (int)MIN(depth, (long int)MAX_SEARCH_DEPTH);
     } else if (movetime > 0) {
         search_depth_limit = MAX_SEARCH_DEPTH;
+        search_soft_ms = movetime;
         search_budget_ms = movetime;
     } else if (my_time > 0) {
-        // we simply assume we have always 28 moves to as a way to smooth the time spent curve
+        // we simply assume we have always 30 moves to as a way to smooth the time spent curve
         search_depth_limit = MAX_SEARCH_DEPTH;
-        search_budget_ms = my_time / (movestogo > 0 ? movestogo : 28) + (my_increment > 0 ? my_increment * 3 / 4 : 0);
+        search_soft_ms = my_time / (movestogo > 0 ? movestogo : 30) + (my_increment > 0 ? my_increment * 3 / 4 : 0);
+
+        // Only starting an iteration is held to the soft limit. Cutting one off part way throws
+        // away everything it had done, which costs more than letting it run over. The room to run
+        // over is given up when the clock is too short to afford it, leaving the two limits equal.
+        long int overrun_cap = MAX(my_time / TIME_HARD_CLOCK_SHARE, search_soft_ms);
+        search_budget_ms = MIN(search_soft_ms * TIME_HARD_MULTIPLIER, overrun_cap);
     }
 
-    if (search_budget_ms != 0 && my_time > 0 && search_budget_ms > my_time - 50) {
-        long int my_time2 = my_time - 50;
+    if (search_budget_ms != 0 && my_time > 0 && search_budget_ms > my_time - TIME_MOVE_OVERHEAD_MS) {
+        long int my_time2 = my_time - TIME_MOVE_OVERHEAD_MS;
         search_budget_ms = MAX(my_time2, 10);
+    }
+
+    if (search_soft_ms > search_budget_ms) {
+        search_soft_ms = search_budget_ms;
     }
 }
 

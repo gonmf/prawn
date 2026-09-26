@@ -95,6 +95,21 @@ typedef struct {
 #define LMR_MIN_PLAYS 3
 #endif
 
+// How far past the soft limit an iteration already under way is allowed to run, and the share of
+// the clock that overrun is never allowed to exceed.
+#define TIME_HARD_MULTIPLIER 3
+#define TIME_HARD_CLOCK_SHARE 8
+
+// Held back from the clock for the move to reach the other end.
+#define TIME_MOVE_OVERHEAD_MS 100
+
+// Growth from one iteration to the next, as a percentage, measured but pulled towards a prior.
+#ifndef TIME_RATIO_PRIOR
+#define TIME_RATIO_PRIOR 250
+#endif
+#define TIME_RATIO_MIN 150
+#define TIME_RATIO_MAX 400
+
 // 4 MB at depth 5, 64 MB at depth 6 and 256 MB at depth 7 and above
 #ifndef HASH_TABLE_BITS
 #define HASH_TABLE_BITS_FOR_DEPTH (3 * DEFAULT_SEARCH_DEPTH + 3)
