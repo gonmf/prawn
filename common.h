@@ -103,6 +103,57 @@ typedef struct {
 // Held back from the clock for the move to reach the other end.
 #define TIME_MOVE_OVERHEAD_MS 100
 
+// A passer with a pieqce in front of it is worth a fraction of a free one, and one the enemy king
+// cannot catch is worth close to the queen it becomes.
+#define PASSED_BLOCKED_DIV 2
+#define PASSED_PROTECTED 15
+#define PASSED_PHALANX 20
+#define PASSED_UNSTOPPABLE 600
+
+// An enemy king standing on the path holds the passer back whatever rank it has reached.
+#define PASSED_KING_HELD_DIV 3
+#define PASSED_KING_DISTANCE 10
+
+// Pawns that cannot be defended by another pawn, or that stand in each other's way.
+#define DOUBLED_PAWN 12
+#define ISOLATED_PAWN 15
+#define BACKWARD_PAWN 10
+
+// Pawn structure repeats across huge numbers of nodes, so the part of the evaluation that depends
+// on nothing but the two pawn bitboards is worth keeping.
+#ifndef PAWN_HASH_BITS
+#define PAWN_HASH_BITS 16
+#endif
+#define PAWN_HASH_SIZE (1 << PAWN_HASH_BITS)
+
+// Squares a piece bears on that a pawn does not already deny it, counted against what the piece
+// could expect to have. Rooks gain most from an open board, so their count is worth more late.
+#define MOBILITY_KNIGHT_BASE 4
+#define MOBILITY_BISHOP_BASE 6
+#define MOBILITY_ROOK_BASE 7
+#define MOBILITY_QUEEN_BASE 13
+#define MOBILITY_KNIGHT_MG 4
+#define MOBILITY_KNIGHT_EG 4
+#define MOBILITY_BISHOP_MG 3
+#define MOBILITY_BISHOP_EG 3
+#define MOBILITY_ROOK_MG 2
+#define MOBILITY_ROOK_EG 4
+#define MOBILITY_QUEEN_MG 1
+#define MOBILITY_QUEEN_EG 2
+
+// Attackers on the squares around a king, weighted and then squared: two pieces bearing on a king
+// are worth far more than twice one. Only while there are pieces left to do it with.
+#define KING_ATTACK_KNIGHT 20
+#define KING_ATTACK_BISHOP 20
+#define KING_ATTACK_ROOK 40
+#define KING_ATTACK_QUEEN 80
+#define KING_DANGER_DIV 256
+#define KING_DANGER_MAX 500
+
+// What stands in front of a king of its own.
+#define KING_OPEN_FILE 25
+#define KING_SHIELD_ADVANCED 9
+
 // Added to the soft limit, as a percentage, while the search has not settled on an answer.
 #define TIME_UNSTABLE_EXTRA 50
 #define TIME_DROP_THRESHOLD 50

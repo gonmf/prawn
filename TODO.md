@@ -29,7 +29,7 @@ Things planned for development, in no specific order.
 - Razoring
 - Internal iterative deepening for nodes with no TT move
 - SEE pruning in the main search instead of just in qsearch
-- Search extensions - check, recapture, singular extensions, mate-distance pruning
+- Search extensions - recapture, singular extensions, mate-distance pruning
 - Check generation for quiet mating nets
 - MVV-LVA, countermove, continuation history, SEE-based capture sort
 - Node lazy generation
@@ -40,11 +40,22 @@ Things planned for development, in no specific order.
 - Incremental occupancy
 - New board structure side-by-side with bitmap for fast piece identification
 - Move undo in board structure
-- Pawn hash table, eval cache, lazy eval, incremental eval
+- Eval cache, incremental eval
+- Lazy eval
 
 ## Board eval
 
-- Pawn structure analysis
+- Safe checks
+- Pawn storms
+- Squares by the king defended by nothing but the king
+- Mobility that knows a piece is trapped rather than merely short of squares
+- Candidate passers
+- Blockade quality
+- Rook behind a passed pawn
+- King opposition, or a KPK bitbase in place of guessing at it
+- Doubled pawns counted worse when also isolated
+- Bad bishop
+- Knight outposts
 - More phased PST besides just the king's
 - Weight tuning
 
