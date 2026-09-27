@@ -89,8 +89,8 @@ the root accounts for, which narrows a wrong total down to the play causing it:
 ./perft "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1" 3
 ```
 
-It reaches prawn's internals by including `prawn.c` whole, so it needs no Zobrist
-file and can run from anywhere.
+It links the engine's shared sources directly, so it needs no Zobrist file and
+can run from anywhere.
 
 ## Zobrist tables
 

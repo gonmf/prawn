@@ -4,7 +4,6 @@ Things planned for development, in no specific order.
 
 ## General
 
-- Refactor program into separate files for opening books, zobrist hashing, minimax search, etc.
 - Implement end tables (Syzygy, not Gaviota)
 - Implement proper opening books
 - Contempt / draw aversion

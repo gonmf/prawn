@@ -2,7 +2,7 @@
 Generate a Zobrist key table file for prawn.
 
 The file is a flat array of int64_t keys in native byte order, named
-zobrist_N.bin and read whole by populate_zobrist_masks in prawn.c. That function
+zobrist_N.bin and read whole by populate_zobrist_masks in zobrist.c. That function
 splits it into 64*12 piece-square keys, one side to move key, 8 en passant file
 keys and 4 castling keys, in that order. The count does not depend on the search
 depth, so there is only ever one file to produce.
@@ -14,7 +14,7 @@ per-bit column frequencies have the lowest variance, until interrupted with
 ENTER or until the time budget runs out.
 */
 
-#include "../common.h"
+#include "common.h"
 
 #include <sys/select.h>
 #include <sys/types.h>
@@ -144,14 +144,9 @@ static int interrupted() {
     return select(STDIN_FILENO + 1, &readfs, NULL, NULL, &tm) > 0;
 }
 
-static long int elapsed_ms(struct timeval start, struct timeval end) {
-    return (end.tv_sec - start.tv_sec) * 1000L +
-           (end.tv_usec - start.tv_usec) / 1000L;
-}
-
 /*
 Number of keys prawn reads, and the number it names the file after. Kept in step
-with populate_zobrist_masks in prawn.c.
+with populate_zobrist_masks in zobrist.c.
 */
 static int default_entries() {
     return 64 * 12 + 1 + 8 + 4;

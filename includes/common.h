@@ -202,7 +202,96 @@ typedef struct {
 
 #define MAX_SUPPORTED_OB_RULES 64
 
+// Must fit a whole game position command in UCI
+#define INPUT_BUFFER_SIZE 16384
+
+#define NO_SCORE -536870912
+#define CHECK_MATE -536870911
+#define DRAW 536870911
+
+// A checkmate is worth MATE_SCORE less 128 for every play it takes to reach, so that the search
+// prefers the shortest one. No material evaluation comes close.
+#define MATE_SCORE 20000000
+#define MATE_THRESHOLD (MATE_SCORE - 128 * (MAX_TOTAL_SEARCH_DEPTH + 1))
+
+#define PAWN_VALUE 100
+#define KNIGHT_VALUE 320
+#define BISHOP_VALUE 330
+#define ROOK_VALUE 500
+#define QUEEN_VALUE 900
+#define KING_VALUE 20000
+
+// How far short of alpha a capture may leave the node before it is not worth searching
+#define DELTA_MARGIN 200
+
+// Ordering bonuses for quiet plays. Both sit far above any history count, which is capped.
+#define KILLER_FIRST (1 << 28)
+#define KILLER_SECOND (1 << 27)
+#define HISTORY_MAX (1 << 20)
+
+#define MIDGAME_MATERIAL 6400
+#define ENDGAME_MATERIAL 1300
+#define MATE_DRIVE_EDGE 10
+#define MATE_DRIVE_CLOSE 4
+
+#define MAX(A,B) ((A) > (B) ? (A) : (B))
+#define MIN(A,B) ((A) < (B) ? (A) : (B))
+
+extern char buffer[INPUT_BUFFER_SIZE];
+
+extern board_t board;
+extern board_ext_t board_ext;
+
+extern uint64_t white_pawn_capture_masks[64];
+extern uint64_t black_pawn_capture_masks[64];
+extern uint64_t white_en_passant_capture_masks[8];
+extern uint64_t black_en_passant_capture_masks[8];
+extern uint64_t knight_moves_masks[64];
+extern uint64_t king_moves_masks[64];
+
+extern int64_t zobrist_map[64][12];
+extern int64_t zobrist_side_to_move; // hashes when black
+extern int64_t zobrist_en_passant[8];
+extern int64_t zobrist_castling[4];
+
+extern hash_table_entry_t * hash_table;
+
+extern int64_t search_history[MAX_GAME_PLAYS + MAX_TOTAL_SEARCH_DEPTH + 4];
+extern int search_history_count;
+
+extern struct timeval search_start;
+extern long int search_soft_ms;
+extern long int search_budget_ms;
+extern int search_depth_limit;
+extern int search_aborted;
+extern uint64_t search_nodes;
+extern int search_abortable;
+
+extern unsigned int opening_book_size;
+extern uint64_t opening_book[MAX_SUPPORTED_OB_RULES];
+extern char ob_play_colors[MAX_SUPPORTED_OB_RULES];
+extern play_short_t ob_plays[MAX_SUPPORTED_OB_RULES][4];
+
+extern int opening_book_enabled;
+extern int extend_uci;
+extern int arbitrate_draws;
+extern int uci_game_in_error_state;
+extern int convert_at_ob_depth;
+extern char program_dir[1024];
+
 void fen_to_board(board_t * board, board_ext_t * board_ext, const char * fen_str);
 void board_to_fen(char * fen_str, const board_t * board, const board_ext_t * board_ext);
+
+#include "timing.h"
+#include "board.h"
+#include "move_gen.h"
+#include "zobrist.h"
+#include "filesystem.h"
+#include "transpositions.h"
+#include "opening_book.h"
+#include "evaluation.h"
+#include "search.h"
+#include "uci.h"
+#include "text_ui.h"
 
 #endif

@@ -8,13 +8,6 @@ somewhere in that tree. It is a better test than playing games: a bug that shows
 up once in 200000 nodes will never lose a bait match visibly, but it turns 197281
 into 197284 here immediately.
 
-Everything in prawn.c is static, so there are no symbols to link against. Rather
-than export any, this file includes the whole translation unit and renames its
-main out of the way. The consequence is that prawn.c must NOT also appear on the
-compile line, or it is compiled twice and every symbol is duplicated:
-
-    gcc $(CFLAGS) perft-src/main.c fen.c -o perft
-
 Only the three move mask tables are initialised below. The Zobrist tables are
 left zeroed, since the hash just_play_*_complex maintains is discarded here, and
 that is what lets this run without a zobrist_N.bin in the working directory.
@@ -27,10 +20,7 @@ Usage:
     ./perft "<fen>" <depth>   count one position, listing each root move's share
 */
 
-// prawn.c carries a main of its own, which would collide with the one below
-#define main prawn_main_unused
-#include "../prawn.c"
-#undef main
+#include "common.h"
 
 static uint64_t perft(const board_t * board, int depth) {
     play_t valid_plays[218];
@@ -59,18 +49,6 @@ static uint64_t perft(const board_t * board, int depth) {
     return total;
 }
 
-static void format_play(char * dest, const play_t * play) {
-    int i = sprintf(dest, "%c%d%c%d", 'a' + play->from_x, 8 - play->from_y, 'a' + play->to_x, 8 - play->to_y);
-
-    switch (play->promotion_option) {
-        case PROMOTION_QUEEN:  dest[i++] = 'q'; break;
-        case PROMOTION_KNIGHT: dest[i++] = 'n'; break;
-        case PROMOTION_BISHOP: dest[i++] = 'b'; break;
-        case PROMOTION_ROOK:   dest[i++] = 'r'; break;
-    }
-
-    dest[i] = 0;
-}
 
 static void perft_divide(const board_t * board, int depth) {
     play_t valid_plays[218];
@@ -92,7 +70,7 @@ static void perft_divide(const board_t * board, int depth) {
         uint64_t nodes = depth <= 1 ? 1 : perft(&board_cpy, depth - 1);
         total += nodes;
 
-        format_play(play_str, &valid_plays[i]);
+        format_play_uci(play_str, &valid_plays[i]);
         printf("%-6s %llu\n", play_str, (unsigned long long int)nodes);
     }
 
