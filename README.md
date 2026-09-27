@@ -6,12 +6,13 @@
 
 A small but strong single-threaded chess program. [Challenge it to a game on lichess](https://lichess.org/@/prawn_bot).
 
-**prawn** performs alpha-beta pruning with iterative deepening for timed play with quiescence search at the leafs, with delta, SEE, null-move and LMR pruning. Move generation is sorted and uses precomputed attack masks and bitwise operations. A transposition table is also used with Zobrist hashing, incremental hash updates. It uses a simple material evaluator with mid/endgame tables and some nudges for endgame play (no endgame tables yet).
+**prawn** performs negamax with alpha-beta pruning and iterative deepening (for timed play) that then switches to a quiescence search that resolves captures so the evaluation is never taken in the middle of a trade. On the quiescence search SEE and delta pruning are performed. On the main search it does null-move pruning, late move reductions and check extensions, and sorts plays by transposition table hit first, then captures, then quiet plays by killer move and the history heuristic. The transposition table uses Zobrist hashing and incremental hash updates. Move generation uses precomputed attack masks and bitwise operations, no magic bitboards yet.
 
-It understands FEN notation, moves in long algebraic notation, and its own format of simple opening books. It has a text interface supporting self-play and play against a human, and it speaks the UCI protocol for external graphical interfaces and timed play.
+Evaluation adapts between stages of the game. It uses material value plus PST and pawn structure analysis (passed pawns scaled by rank and by whether they are blocked, defended or beyond the reach of the enemy king, along with doubled, isolated and backward pawns, all kept in a pawn hash), piece mobility, king safety from both attackers on the squares around the king and the pawns sheltering it, and sole king mop-up.
+
+It understands FEN notation, moves in long algebraic notation, and its own format of simple opening books. It has a text interface supporting self-play and play against a human, and it speaks the UCI protocol for external graphical interfaces and timed play. It does not yet ponder. Time is split between a soft limit, which decides whether another iteration is affordable from what the last ones cost, and a hard one that stops a search in progress; positions where the best play changes or the score drops get more time.
 
 Check [TODO.md](TODO.md) for all missing and planned features.
-
 
 ## Building
 
@@ -19,8 +20,8 @@ Check [TODO.md](TODO.md) for all missing and planned features.
 make
 ```
 
-Builds `prawn`, plus the `bait` and `perft` test tools. A C99 compiler is all that
-is needed; the Makefile uses `-march=native`.
+Builds `prawn`, plus the `bait`, `perft` and `zobrist-gen` tools. A C99 compiler
+is all that is needed; the Makefile uses `-march=native` and `-flto`.
 
 ## Running
 
