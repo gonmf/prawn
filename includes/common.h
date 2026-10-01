@@ -287,6 +287,7 @@ void board_to_fen(char * fen_str, const board_t * board, const board_ext_t * boa
 #include "move_gen.h"
 #include "zobrist.h"
 #include "filesystem.h"
+#include "magic_bitboards.h"
 #include "transpositions.h"
 #include "opening_book.h"
 #include "evaluation.h"

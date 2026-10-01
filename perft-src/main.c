@@ -106,6 +106,10 @@ int main(int argc, char * argv[]) {
     populate_pawn_capture_masks();
     populate_knight_moves_masks();
     populate_king_moves_masks();
+    if (!populate_magic_bitboards()) {
+        fprintf(stderr, "magic_rook.bin and magic_bishop.bin not found\n");
+        return EXIT_FAILURE;
+    }
 
     board_t test_board;
     board_ext_t test_board_ext;

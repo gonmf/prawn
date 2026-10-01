@@ -278,32 +278,13 @@ static const pawn_hash_entry_t * cached_pawn_evaluation(const board_t * board) {
 }
 
 static uint64_t slider_attacks(uint64_t occupied, int sq, int first_dir, int last_dir) {
-    static const int directions[8][2] = {
-        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
-        {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
-    };
-
     uint64_t attacks = 0ULL;
-    int from_x = sq % 8;
-    int from_y = sq / 8;
 
-    for (int d = first_dir; d <= last_dir; ++d) {
-        int dx = directions[d][0];
-        int dy = directions[d][1];
-        int x = from_x + dx;
-        int y = from_y + dy;
-
-        while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-            uint64_t to_mask = 1ULL << (y * 8 + x);
-            attacks |= to_mask;
-
-            if (occupied & to_mask) {
-                break;
-            }
-
-            x += dx;
-            y += dy;
-        }
+    if (first_dir <= 3) {
+        attacks |= magic_rook_attacks(sq, occupied);
+    }
+    if (last_dir >= 4) {
+        attacks |= magic_bishop_attacks(sq, occupied);
     }
 
     return attacks;

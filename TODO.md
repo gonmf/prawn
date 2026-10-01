@@ -35,12 +35,12 @@ Things planned for development, in no specific order.
 
 ## Performance
 
-- Magic bitboards for sliding pieces
 - Incremental occupancy
 - New board structure side-by-side with bitmap for fast piece identification
 - Move undo in board structure
 - Eval cache, incremental eval
 - Lazy eval
+- Finish using magic bitboards everywhere
 
 ## Board eval
 

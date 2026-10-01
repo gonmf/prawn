@@ -26,6 +26,11 @@ int main(int argc, char * argv[]) {
     populate_passed_pawn_masks();
     populate_knight_moves_masks();
     populate_king_moves_masks();
+    if (!populate_magic_bitboards()) {
+        fprintf(stderr, "Required files magic_rook.bin and magic_bishop.bin are missing or unusable on this machine.\n");
+        fprintf(stderr, "To fix, compile and run magic-gen again.\n");
+        return EXIT_FAILURE;
+    }
     populate_zobrist_masks();
     if (posix_memalign((void **)&hash_table, 64, (size_t)HASH_TABLE_SIZE * sizeof(hash_table_entry_t)) != 0) {
         hash_table = NULL;

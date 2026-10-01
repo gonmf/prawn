@@ -58,38 +58,11 @@ int square_attacked_by(const board_t * board, int sq, int by_color) {
         return 1;
     }
 
-    static const int directions[8][2] = {
-        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
-        {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
-    };
-
-    int from_x = sq % 8;
-    int from_y = sq / 8;
-
-    for (int d = 0; d < 8; ++d) {
-        uint64_t sliders = d < 4 ? rooks_queens : bishops_queens;
-        if (sliders == 0) {
-            continue;
-        }
-
-        int dx = directions[d][0];
-        int dy = directions[d][1];
-        int x = from_x + dx;
-        int y = from_y + dy;
-
-        while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-            uint64_t to_mask = 1ULL << (y * 8 + x);
-
-            if (occupied & to_mask) {
-                if (sliders & to_mask) {
-                    return 1;
-                }
-                break;
-            }
-
-            x += dx;
-            y += dy;
-        }
+    if (rooks_queens & magic_rook_attacks(sq, occupied)) {
+        return 1;
+    }
+    if (bishops_queens & magic_bishop_attacks(sq, occupied)) {
+        return 1;
     }
 
     return 0;
@@ -172,35 +145,8 @@ uint64_t attackers_to_square(const board_t * board, int sq, uint64_t occupied) {
     uint64_t rooks_queens = board->white_rooks | board->black_rooks | board->white_queens | board->black_queens;
     uint64_t bishops_queens = board->white_bishops | board->black_bishops | board->white_queens | board->black_queens;
 
-    const int directions[8][2] = {
-        {1, 0}, {-1, 0}, {0, 1}, {0, -1},
-        {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
-    };
-
-    int from_x = sq % 8;
-    int from_y = sq / 8;
-
-    for (int d = 0; d < 8; ++d) {
-        uint64_t sliders = d < 4 ? rooks_queens : bishops_queens;
-        int dx = directions[d][0];
-        int dy = directions[d][1];
-        int x = from_x + dx;
-        int y = from_y + dy;
-
-        while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-            uint64_t to_mask = 1ULL << (y * 8 + x);
-
-            if (occupied & to_mask) {
-                if (sliders & to_mask) {
-                    attackers |= to_mask;
-                }
-                break;
-            }
-
-            x += dx;
-            y += dy;
-        }
-    }
+    attackers |= rooks_queens & magic_rook_attacks(sq, occupied);
+    attackers |= bishops_queens & magic_bishop_attacks(sq, occupied);
 
     return attackers & occupied;
 }
@@ -635,154 +581,53 @@ int enumerate_all_piece_moves(play_t * valid_plays, const board_t * board, int c
         }
     }
 
-    // Rooks and queens
+    // Rooks, bishops and queens: the reachable squares come from one table lookup each, so the
+    // plays are laid down in square order rather than ray by ray.
     moves = own_rooks | own_queens;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
+        uint64_t targets = magic_rook_attacks(from, own_mask | opponent_mask) & ~own_mask;
 
-        int to_x = from_x + 1;
-        int to = from_y * 8 + from_x;
-        uint64_t to_mask = 1ULL << to;
-        while (to_x < 8) {
-            to_mask = to_mask << 1;
-            if (to_mask & own_mask) {
-                break;
-            }
-
-            if (!captures_only || (to_mask & opponent_mask)) {
-                valid_plays[valid_plays_i].promotion_option = 0;
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = to_x;
-                valid_plays[valid_plays_i].to_y = from_y;
-                valid_plays_i++;
-            }
-
-            if (to_mask & opponent_mask) {
-                break;
-            }
-
-            to_x += 1;
+        if (captures_only) {
+            targets &= opponent_mask;
         }
 
-        to_x = from_x - 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_x >= 0) {
-            to_mask = to_mask >> 1;
-            if (to_mask & own_mask) {
-                break;
-            }
+        while (targets) {
+            int to = __builtin_ctzll(targets);
 
-            if (!captures_only || (to_mask & opponent_mask)) {
-                valid_plays[valid_plays_i].promotion_option = 0;
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = to_x;
-                valid_plays[valid_plays_i].to_y = from_y;
-                valid_plays_i++;
-            }
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from % 8;
+            valid_plays[valid_plays_i].from_y = from / 8;
+            valid_plays[valid_plays_i].to_x = to % 8;
+            valid_plays[valid_plays_i].to_y = to / 8;
+            valid_plays_i++;
 
-            if (to_mask & opponent_mask) {
-                break;
-            }
-
-            to_x -= 1;
-        }
-
-        int to_y = from_y + 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_y < 8) {
-            to_mask = to_mask << 8;
-            if (to_mask & own_mask) {
-                break;
-            }
-
-            if (!captures_only || (to_mask & opponent_mask)) {
-                valid_plays[valid_plays_i].promotion_option = 0;
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = from_x;
-                valid_plays[valid_plays_i].to_y = to_y;
-                valid_plays_i++;
-            }
-
-            if (to_mask & opponent_mask) {
-                break;
-            }
-
-            to_y += 1;
-        }
-
-        to_y = from_y - 1;
-        to = from_y * 8 + from_x;
-        to_mask = 1ULL << to;
-        while (to_y >= 0) {
-            to_mask = to_mask >> 8;
-            if (to_mask & own_mask) {
-                break;
-            }
-
-            if (!captures_only || (to_mask & opponent_mask)) {
-                valid_plays[valid_plays_i].promotion_option = 0;
-                valid_plays[valid_plays_i].from_x = from_x;
-                valid_plays[valid_plays_i].from_y = from_y;
-                valid_plays[valid_plays_i].to_x = from_x;
-                valid_plays[valid_plays_i].to_y = to_y;
-                valid_plays_i++;
-            }
-
-            if (to_mask & opponent_mask) {
-                break;
-            }
-
-            to_y -= 1;
+            targets &= targets - 1;
         }
 
         moves &= moves - 1;
     }
 
-    // Bishops and queens
     moves = own_bishops | own_queens;
     while (moves) {
         int from = __builtin_ctzll(moves);
-        int from_x = from % 8;
-        int from_y = from / 8;
+        uint64_t targets = magic_bishop_attacks(from, own_mask | opponent_mask) & ~own_mask;
 
-        int directions[4][2] = { {1,1}, {-1,1}, {1,-1}, {-1,-1} };
-        for (int d = 0; d < 4; d++) {
-            int dx = directions[d][0];
-            int dy = directions[d][1];
-            int x = from_x + dx;
-            int y = from_y + dy;
+        if (captures_only) {
+            targets &= opponent_mask;
+        }
 
-            while (x >= 0 && x < 8 && y >= 0 && y < 8) {
-                int to = y * 8 + x;
-                uint64_t to_mask = 1ULL << to;
+        while (targets) {
+            int to = __builtin_ctzll(targets);
 
-                if (to_mask & own_mask) {
-                    break;
-                }
+            valid_plays[valid_plays_i].promotion_option = 0;
+            valid_plays[valid_plays_i].from_x = from % 8;
+            valid_plays[valid_plays_i].from_y = from / 8;
+            valid_plays[valid_plays_i].to_x = to % 8;
+            valid_plays[valid_plays_i].to_y = to / 8;
+            valid_plays_i++;
 
-                if (!captures_only || (to_mask & opponent_mask)) {
-                    valid_plays[valid_plays_i].promotion_option = 0;
-                    valid_plays[valid_plays_i].from_x = from_x;
-                    valid_plays[valid_plays_i].from_y = from_y;
-                    valid_plays[valid_plays_i].to_x = x;
-                    valid_plays[valid_plays_i].to_y = y;
-                    valid_plays_i++;
-                }
-
-                if (to_mask & opponent_mask) {
-                    break;
-                }
-
-                x += dx;
-                y += dy;
-            }
+            targets &= targets - 1;
         }
 
         moves &= moves - 1;
