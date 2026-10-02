@@ -40,12 +40,11 @@ Things planned for development, in no specific order.
 - Move undo in board structure
 - Eval cache, incremental eval
 - Lazy eval
-- Finish using magic bitboards everywhere
+- Magic bitboards in the pins scan
 
 ## Board eval
 
 - Safe checks
-- Pawn storms
 - Squares by the king defended by nothing but the king
 - Mobility that knows a piece is trapped rather than merely short of squares
 - Candidate passers

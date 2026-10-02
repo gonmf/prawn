@@ -150,8 +150,15 @@ typedef struct {
 #define KING_DANGER_DIV 256
 #define KING_DANGER_MAX 500
 
+// An attack is assembled before it arrives: a rook on a file by the king, a piece bearing on it
+// through a piece that will move, and pawns marching at it all count before any square is attacked.
+#define KING_FILE_ROOK 25
+#define KING_FILE_ROOK_OPEN 20
+#define KING_STORM_BASE 32
+#define KING_XRAY_DIV 2
+
 // What stands in front of a king of its own.
-#define KING_OPEN_FILE 25
+#define KING_OPEN_FILE 40
 #define KING_SHIELD_ADVANCED 9
 
 // Added to the soft limit, as a percentage, while the search has not settled on an answer.

@@ -309,6 +309,13 @@ static int piece_mobility(
         king_zone = king_moves_masks[enemy_king] | enemy_kings;
     }
 
+    // A slider of our own standing in the way is about to move; what lies beyond it still bears on
+    // the king. Taking them out of the occupancy is what lets a battery be seen before it forms.
+    uint64_t own_sliders = white
+        ? (board->white_bishops | board->white_rooks | board->white_queens)
+        : (board->black_bishops | board->black_rooks | board->black_queens);
+    uint64_t xray_occupied = occupied & ~own_sliders;
+
     int mobility_mg = 0;
     int mobility_eg = 0;
     int danger = 0;
@@ -327,38 +334,79 @@ static int piece_mobility(
 
     pieces = white ? board->white_bishops : board->black_bishops;
     while (pieces) {
-        uint64_t attacks = slider_attacks(occupied, __builtin_ctzll(pieces), 4, 7);
+        int from = __builtin_ctzll(pieces);
+        uint64_t attacks = slider_attacks(occupied, from, 4, 7);
         int room = __builtin_popcountll(attacks & safe) - MOBILITY_BISHOP_BASE;
         mobility_mg += room * MOBILITY_BISHOP_MG;
         mobility_eg += room * MOBILITY_BISHOP_EG;
         if (attacks & king_zone) {
             danger += KING_ATTACK_BISHOP;
+        } else if (slider_attacks(xray_occupied, from, 4, 7) & king_zone) {
+            danger += KING_ATTACK_BISHOP / KING_XRAY_DIV;
         }
         pieces &= pieces - 1;
     }
 
     pieces = white ? board->white_rooks : board->black_rooks;
     while (pieces) {
-        uint64_t attacks = slider_attacks(occupied, __builtin_ctzll(pieces), 0, 3);
+        int from = __builtin_ctzll(pieces);
+        uint64_t attacks = slider_attacks(occupied, from, 0, 3);
         int room = __builtin_popcountll(attacks & safe) - MOBILITY_ROOK_BASE;
         mobility_mg += room * MOBILITY_ROOK_MG;
         mobility_eg += room * MOBILITY_ROOK_EG;
         if (attacks & king_zone) {
             danger += KING_ATTACK_ROOK;
+        } else if (slider_attacks(xray_occupied, from, 0, 3) & king_zone) {
+            danger += KING_ATTACK_ROOK / KING_XRAY_DIV;
         }
         pieces &= pieces - 1;
     }
 
     pieces = white ? board->white_queens : board->black_queens;
     while (pieces) {
-        uint64_t attacks = slider_attacks(occupied, __builtin_ctzll(pieces), 0, 7);
+        int from = __builtin_ctzll(pieces);
+        uint64_t attacks = slider_attacks(occupied, from, 0, 7);
         int room = __builtin_popcountll(attacks & safe) - MOBILITY_QUEEN_BASE;
         mobility_mg += room * MOBILITY_QUEEN_MG;
         mobility_eg += room * MOBILITY_QUEEN_EG;
         if (attacks & king_zone) {
             danger += KING_ATTACK_QUEEN;
+        } else if (slider_attacks(xray_occupied, from, 0, 7) & king_zone) {
+            danger += KING_ATTACK_QUEEN / KING_XRAY_DIV;
         }
         pieces &= pieces - 1;
+    }
+
+    if (enemy_kings) {
+        int enemy_king = __builtin_ctzll(enemy_kings);
+        int enemy_king_x = enemy_king % 8;
+        int enemy_king_y = enemy_king / 8;
+
+        uint64_t storming_pawns = white ? board->white_pawns : board->black_pawns;
+        uint64_t sheltering_pawns = white ? board->black_pawns : board->white_pawns;
+        uint64_t own_rooks_queens = white
+            ? (board->white_rooks | board->white_queens)
+            : (board->black_rooks | board->black_queens);
+
+        for (int x = MAX(enemy_king_x - 1, 0); x <= MIN(enemy_king_x + 1, 7); ++x) {
+            if (own_rooks_queens & file_masks[x]) {
+                danger += KING_FILE_ROOK;
+
+                if ((sheltering_pawns & file_masks[x]) == 0ULL) {
+                    danger += KING_FILE_ROOK_OPEN;
+                }
+            }
+
+            uint64_t storm = storming_pawns & file_masks[x];
+            if (storm) {
+                int nearest = white ? __builtin_ctzll(storm) : 63 - __builtin_clzll(storm);
+                int ranks_away = white ? nearest / 8 - enemy_king_y : enemy_king_y - nearest / 8;
+
+                if (ranks_away >= 1 && ranks_away <= 4) {
+                    danger += KING_STORM_BASE / ranks_away;
+                }
+            }
+        }
     }
 
     int score = (mobility_mg * midgame_weight + mobility_eg * endgame_weight) / weight_span;
