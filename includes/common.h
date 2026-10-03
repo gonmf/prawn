@@ -86,6 +86,15 @@ typedef struct {
 #define MAX_TOTAL_SEARCH_DEPTH (MAX_SEARCH_DEPTH + QUIESCENCE_EXTRA_DEPTH)
 #define HASH_TABLE_BUCKET 4
 
+// How far above beta the static score must sit, per play still to search, before the node is taken
+// as good enough without searching it.
+#ifndef RFP_MARGIN
+#define RFP_MARGIN 85
+#endif
+#ifndef RFP_MAX_DRAFT
+#define RFP_MAX_DRAFT 6
+#endif
+
 #ifndef NULL_MOVE_REDUCTION
 #define NULL_MOVE_REDUCTION 2
 #endif

@@ -277,6 +277,16 @@ int negamax(
         draft++;
     }
 
+    // Standing so far above beta that losing a piece for every play still to come would not bring it down
+    if (!in_check && draft <= RFP_MAX_DRAFT && beta < MATE_THRESHOLD) {
+        int stand_pat = white_to_play ? estimate_board_score(board) : -estimate_board_score(board);
+        int margin = RFP_MARGIN * draft;
+
+        if (stand_pat - margin >= beta) {
+            return stand_pat - margin;
+        }
+    }
+
     if (can_null_prune && !in_check && draft >= 3 && beta < MATE_THRESHOLD && (white_to_play
             ? (board->white_knights | board->white_bishops | board->white_rooks | board->white_queens)
             : (board->black_knights | board->black_bishops | board->black_rooks | board->black_queens))) {

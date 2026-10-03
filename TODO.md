@@ -23,7 +23,7 @@ Things planned for development, in no specific order.
 
 - Principal variation search
 - Aspiration windows
-- Reverse futility / static null move
+- Static null move
 - Futility pruning
 - Razoring
 - Internal iterative deepening for nodes with no TT move
