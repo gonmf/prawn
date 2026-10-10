@@ -54,7 +54,6 @@ Things planned for development, in no specific order.
 - Doubled pawns counted worse when also isolated
 - Bad bishop
 - Knight outposts
-- More phased PST besides just the king's
 - Weight tuning
 
 ## Things that will not be implemented
