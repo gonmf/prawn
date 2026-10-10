@@ -166,6 +166,8 @@ typedef struct {
 #define KING_STORM_BASE 32
 #define KING_XRAY_DIV 2
 
+#define CASTLING_RIGHT 20
+
 // What stands in front of a king of its own.
 #define KING_OPEN_FILE 40
 #define KING_SHIELD_ADVANCED 9

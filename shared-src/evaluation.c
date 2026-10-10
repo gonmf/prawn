@@ -7,7 +7,8 @@ typedef struct {
     uint64_t black_passed;
     uint64_t white_attacks;
     uint64_t black_attacks;
-    int32_t score;
+    int32_t score_mg;
+    int32_t score_eg;
 } pawn_hash_entry_t;
 
 static uint64_t white_passed_masks[64];
@@ -32,6 +33,17 @@ static const int pawn_pst[64] = {
      0,  0,  0, 20, 20,  0,  0,  0,
      5, -5,-10,  0,  0,-10, -5,  5,
      5, 10, 10,-20,-20, 10, 10,  5,
+     0,  0,  0,  0,  0,  0,  0,  0
+};
+
+static const int pawn_endgame_pst[64] = {
+     0,  0,  0,  0,  0,  0,  0,  0,
+    80, 80, 80, 80, 80, 80, 80, 80,
+    50, 50, 50, 50, 50, 50, 50, 50,
+    30, 30, 30, 30, 30, 30, 30, 30,
+    15, 15, 15, 15, 15, 15, 15, 15,
+     5,  5,  5,  5,  5,  5,  5,  5,
+     0,  0,  0,  0,  0,  0,  0,  0,
      0,  0,  0,  0,  0,  0,  0,  0
 };
 
@@ -242,14 +254,17 @@ static const pawn_hash_entry_t * cached_pawn_evaluation(const board_t * board) {
         return entry;
     }
 
-    int score = 0;
+    int score_mg = 0;
+    int score_eg = 0;
     uint64_t white_passers = 0ULL;
     uint64_t black_passers = 0ULL;
 
     uint64_t pawns = wp;
     while (pawns) {
         int sq = __builtin_ctzll(pawns);
-        score += PAWN_VALUE + pawn_pst[sq] - pawn_structure_penalty(board, sq, 1);
+        int structure = PAWN_VALUE - pawn_structure_penalty(board, sq, 1);
+        score_mg += structure + pawn_pst[sq];
+        score_eg += structure + pawn_endgame_pst[sq];
         if ((white_passed_masks[sq] & bp) == 0ULL) {
             white_passers |= 1ULL << sq;
         }
@@ -259,7 +274,9 @@ static const pawn_hash_entry_t * cached_pawn_evaluation(const board_t * board) {
     pawns = bp;
     while (pawns) {
         int sq = __builtin_ctzll(pawns);
-        score -= PAWN_VALUE + pawn_pst[sq ^ 56] - pawn_structure_penalty(board, sq, 0);
+        int structure = PAWN_VALUE - pawn_structure_penalty(board, sq, 0);
+        score_mg -= structure + pawn_pst[sq ^ 56];
+        score_eg -= structure + pawn_endgame_pst[sq ^ 56];
         if ((black_passed_masks[sq] & wp) == 0ULL) {
             black_passers |= 1ULL << sq;
         }
@@ -272,7 +289,8 @@ static const pawn_hash_entry_t * cached_pawn_evaluation(const board_t * board) {
     entry->black_passed = black_passers;
     entry->white_attacks = pawn_attacks_of(wp, 1);
     entry->black_attacks = pawn_attacks_of(bp, 0);
-    entry->score = score;
+    entry->score_mg = score_mg;
+    entry->score_eg = score_eg;
 
     return entry;
 }
@@ -439,6 +457,12 @@ static int piece_mobility(
         }
 
         score -= shelter * midgame_weight / weight_span;
+
+        int rights = white
+            ? board->white_left_castling + board->white_right_castling
+            : board->black_left_castling + board->black_right_castling;
+
+        score += rights * CASTLING_RIGHT * midgame_weight / weight_span;
     }
 
     return score;
@@ -464,6 +488,8 @@ int estimate_board_score(const board_t * board) {
     }
 
     int score = 0;
+    int pst_mg = 0;
+    int pst_eg = 0;
 
     const int knight_pst[64] = {
       -50,-40,-30,-30,-30,-30,-40,-50,
@@ -476,17 +502,32 @@ int estimate_board_score(const board_t * board) {
       -50,-40,-30,-30,-30,-30,-40,-50
     };
 
+    const int knight_endgame_pst[64] = {
+      -40,-30,-20,-20,-20,-20,-30,-40,
+      -30,-15,  0,  0,  0,  0,-15,-30,
+      -20,  0, 10, 12, 12, 10,  0,-20,
+      -20,  5, 12, 15, 15, 12,  5,-20,
+      -20,  0, 12, 15, 15, 12,  0,-20,
+      -20,  5, 10, 12, 12, 10,  5,-20,
+      -30,-15,  0,  5,  5,  0,-15,-30,
+      -40,-30,-20,-20,-20,-20,-30,-40
+    };
+
     uint64_t knights = board->white_knights;
     while (knights) {
         int sq = __builtin_ctzll(knights);
-        score += KNIGHT_VALUE + knight_pst[sq];
+        score += KNIGHT_VALUE;
+        pst_mg += knight_pst[sq];
+        pst_eg += knight_endgame_pst[sq];
         knights &= knights - 1;
     }
 
     knights = board->black_knights;
     while (knights) {
         int sq = __builtin_ctzll(knights);
-        score -= KNIGHT_VALUE + knight_pst[sq ^ 56];
+        score -= KNIGHT_VALUE;
+        pst_mg -= knight_pst[sq ^ 56];
+        pst_eg -= knight_endgame_pst[sq ^ 56];
         knights &= knights - 1;
     }
 
@@ -501,17 +542,32 @@ int estimate_board_score(const board_t * board) {
       -20,-10,-10,-10,-10,-10,-10,-20
     };
 
+    const int bishop_endgame_pst[64] = {
+      -15, -8, -8, -8, -8, -8, -8,-15,
+       -8,  0,  0,  0,  0,  0,  0, -8,
+       -8,  0,  5,  8,  8,  5,  0, -8,
+       -8,  4,  5,  8,  8,  5,  4, -8,
+       -8,  0,  8,  8,  8,  8,  0, -8,
+       -8,  4,  5,  8,  8,  5,  4, -8,
+       -8,  0,  0,  0,  0,  0,  0, -8,
+      -15, -8, -8, -8, -8, -8, -8,-15
+    };
+
     uint64_t bishops = board->white_bishops;
     while (bishops) {
         int sq = __builtin_ctzll(bishops);
-        score += BISHOP_VALUE + bishop_pst[sq];
+        score += BISHOP_VALUE;
+        pst_mg += bishop_pst[sq];
+        pst_eg += bishop_endgame_pst[sq];
         bishops &= bishops - 1;
     }
 
     bishops = board->black_bishops;
     while (bishops) {
         int sq = __builtin_ctzll(bishops);
-        score -= BISHOP_VALUE + bishop_pst[sq ^ 56];
+        score -= BISHOP_VALUE;
+        pst_mg -= bishop_pst[sq ^ 56];
+        pst_eg -= bishop_endgame_pst[sq ^ 56];
         bishops &= bishops - 1;
     }
 
@@ -526,17 +582,32 @@ int estimate_board_score(const board_t * board) {
        0,  0,  0,  5,  5,  0,  0,  0
     };
 
+    const int rook_endgame_pst[64] = {
+        0,  0,  0,  0,  0,  0,  0,  0,
+       10, 10, 10, 10, 10, 10, 10, 10,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0,
+        0,  0,  0,  0,  0,  0,  0,  0
+    };
+
     uint64_t rooks = board->white_rooks;
     while (rooks) {
         int sq = __builtin_ctzll(rooks);
-        score += ROOK_VALUE + rook_pst[sq];
+        score += ROOK_VALUE;
+        pst_mg += rook_pst[sq];
+        pst_eg += rook_endgame_pst[sq];
         rooks &= rooks - 1;
     }
 
     rooks = board->black_rooks;
     while (rooks) {
         int sq = __builtin_ctzll(rooks);
-        score -= ROOK_VALUE + rook_pst[sq ^ 56];
+        score -= ROOK_VALUE;
+        pst_mg -= rook_pst[sq ^ 56];
+        pst_eg -= rook_endgame_pst[sq ^ 56];
         rooks &= rooks - 1;
     }
 
@@ -551,17 +622,32 @@ int estimate_board_score(const board_t * board) {
       -20,-10,-10, -5, -5,-10,-10,-20
     };
 
+    const int queen_endgame_pst[64] = {
+      -10, -5, -5, -3, -3, -5, -5,-10,
+       -5,  0,  0,  0,  0,  0,  0, -5,
+       -5,  0,  5,  5,  5,  5,  0, -5,
+       -3,  0,  5,  8,  8,  5,  0, -3,
+       -3,  0,  5,  8,  8,  5,  0, -3,
+       -5,  0,  5,  5,  5,  5,  0, -5,
+       -5,  0,  0,  0,  0,  0,  0, -5,
+      -10, -5, -5, -3, -3, -5, -5,-10
+    };
+
     uint64_t queens = board->white_queens;
     while (queens) {
         int sq = __builtin_ctzll(queens);
-        score += QUEEN_VALUE + queen_pst[sq];
+        score += QUEEN_VALUE;
+        pst_mg += queen_pst[sq];
+        pst_eg += queen_endgame_pst[sq];
         queens &= queens - 1;
     }
 
     queens = board->black_queens;
     while (queens) {
         int sq = __builtin_ctzll(queens);
-        score -= QUEEN_VALUE + queen_pst[sq ^ 56];
+        score -= QUEEN_VALUE;
+        pst_mg -= queen_pst[sq ^ 56];
+        pst_eg -= queen_endgame_pst[sq ^ 56];
         queens &= queens - 1;
     }
 
@@ -573,7 +659,7 @@ int estimate_board_score(const board_t * board) {
         -20, -30, -30, -40, -40, -30, -30, -20,
         -10, -20, -20, -20, -20, -20, -20, -10,
          20,  20,   0,   0,   0,   0,  20,  20,
-         20,  30,  10,   0,   0,  10,  30,  20,
+         20,  45,  45,   0,   0,  10,  55,  20,
     };
 
     const int king_endgame_pst[64] = {
@@ -603,6 +689,8 @@ int estimate_board_score(const board_t * board) {
     int endgame_weight = MIDGAME_MATERIAL - phase;
     int weight_span = MIDGAME_MATERIAL - ENDGAME_MATERIAL;
 
+    score += (pst_mg * midgame_weight + pst_eg * endgame_weight) / weight_span;
+
     int white_king_p = board->white_kings ? __builtin_ctzll(board->white_kings) : -1;
     int black_king_p = board->black_kings ? __builtin_ctzll(board->black_kings) : -1;
 
@@ -631,7 +719,7 @@ int estimate_board_score(const board_t * board) {
 
     score += piece_mobility(board, pawn, 1, midgame_weight, endgame_weight, weight_span);
     score -= piece_mobility(board, pawn, 0, midgame_weight, endgame_weight, weight_span);
-    score += pawn->score;
+    score += (pawn->score_mg * midgame_weight + pawn->score_eg * endgame_weight) / weight_span;
 
     uint64_t white_passed = pawn->white_passed;
     uint64_t black_passed = pawn->black_passed;
